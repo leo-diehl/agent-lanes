@@ -664,6 +664,45 @@ def test_cli_init_pool_workspace_id_defaults_to_target_basename(tmp_path: Path, 
     assert "workspace_id: basename-workspace" in yaml_text
 
 
+def test_init_pool_works_when_installed_as_wheel(tmp_path: Path) -> None:
+    """Build a wheel, install it into a temp environment, and run init-pool from it."""
+    repo_root = Path(__file__).resolve().parent.parent
+    wheel_dir = tmp_path / "wheelhouse"
+    wheel_dir.mkdir()
+    venv_dir = tmp_path / "venv"
+
+    subprocess.run(
+        [sys.executable, "-m", "pip", "wheel", "--no-deps", "-w", str(wheel_dir), str(repo_root)],
+        check=True,
+        capture_output=True,
+    )
+    wheels = list(wheel_dir.glob("agent_lanes-*.whl"))
+    assert wheels, "wheel build produced no agent_lanes wheel"
+
+    subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
+    venv_python = venv_dir / "bin" / "python"
+    subprocess.run([str(venv_python), "-m", "pip", "install", "--quiet", str(wheels[0])], check=True)
+
+    target = tmp_path / "pool-test"
+    subprocess.run(
+        [str(venv_python), "-m", "agent_lanes", "init-pool", str(target), "--workspace-id", "wheel-test"],
+        check=True,
+        capture_output=True,
+    )
+
+    assert (target / ".agent-lanes-queue" / "handoff.yaml").exists()
+    assert (target / "_dispatchers" / "claude.sh").exists()
+    assert (target / "_dispatchers" / "codex.sh").exists()
+    assert (target / "_dispatchers" / "POLLING-CHAT-PROMPT.md").exists()
+
+    poll_prompt = (target / "_dispatchers" / "POLLING-CHAT-PROMPT.md").read_text()
+    assert "{{" not in poll_prompt, "polling prompt has unsubstituted placeholders"
+
+    for wrapper_name in ("claude.sh", "codex.sh"):
+        wrapper_text = (target / "_dispatchers" / wrapper_name).read_text()
+        assert "{{" not in wrapper_text, f"{wrapper_name} has unsubstituted placeholders"
+
+
 def test_cli_init_refuses_to_overwrite(tmp_path: Path, capsys) -> None:
     target = tmp_path / "with-existing"
     target.mkdir()

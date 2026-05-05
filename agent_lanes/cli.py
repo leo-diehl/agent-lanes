@@ -7,6 +7,7 @@ import shutil
 import stat
 import sys
 import time
+from importlib.resources import as_file, files
 from pathlib import Path
 
 from .config import RuntimeConfig, load_config, load_task_file
@@ -456,31 +457,33 @@ def _cmd_init(args: argparse.Namespace) -> int:
     workspace_root = args.workspace_root or ".."
     queue_root = args.queue_root or "state"
 
-    template_root = _template_root()
-    if not template_root.exists():
-        raise HandoffError(f"workspace template missing: {template_root}")
+    template_root_resource = files("agent_lanes").joinpath("templates", "workspace")
+    with as_file(template_root_resource) as template_root_path:
+        template_root = Path(template_root_path)
+        if not template_root.exists():
+            raise HandoffError(f"workspace template missing: {template_root}")
 
-    # Copy the template tree, substituting placeholders.
-    for src in template_root.rglob("*"):
-        rel = src.relative_to(template_root)
-        dst = handoff_dir / rel
-        if src.is_dir():
-            dst.mkdir(parents=True, exist_ok=True)
-            continue
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            text = src.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            shutil.copyfile(src, dst)
-        else:
-            text = text.replace(INIT_PLACEHOLDER_WORKSPACE_ID, workspace_id)
-            text = text.replace(INIT_PLACEHOLDER_WORKSPACE_ROOT, workspace_root)
-            text = text.replace(INIT_PLACEHOLDER_QUEUE_ROOT, queue_root)
-            dst.write_text(text, encoding="utf-8")
-        # preserve executable bit
-        src_mode = src.stat().st_mode
-        if src_mode & stat.S_IXUSR:
-            dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        # Copy the template tree, substituting placeholders.
+        for src in template_root.rglob("*"):
+            rel = src.relative_to(template_root)
+            dst = handoff_dir / rel
+            if src.is_dir():
+                dst.mkdir(parents=True, exist_ok=True)
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                text = src.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                shutil.copyfile(src, dst)
+            else:
+                text = text.replace(INIT_PLACEHOLDER_WORKSPACE_ID, workspace_id)
+                text = text.replace(INIT_PLACEHOLDER_WORKSPACE_ROOT, workspace_root)
+                text = text.replace(INIT_PLACEHOLDER_QUEUE_ROOT, queue_root)
+                dst.write_text(text, encoding="utf-8")
+            # preserve executable bit
+            src_mode = src.stat().st_mode
+            if src_mode & stat.S_IXUSR:
+                dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     # Make wrapper and dispatcher executable explicitly.
     for relative in ("bin/handoff", "dispatcher.sh"):
@@ -528,41 +531,43 @@ def _cmd_init_pool(args: argparse.Namespace) -> int:
     workspace_id = args.workspace_id or target_root.name or "workspace"
     config_path = queue_dir / "handoff.yaml"
     store_path = queue_dir / "state"
-    dispatcher_template = _workspace_dispatcher_template()
-    if not dispatcher_template.exists():
-        raise HandoffError(f"dispatcher template missing: {dispatcher_template}")
+    template_root_resource = files("agent_lanes").joinpath("templates", "pool")
+    dispatcher_template_resource = files("agent_lanes").joinpath("templates", "workspace", "dispatcher.sh")
+    with as_file(template_root_resource) as template_root_path, as_file(dispatcher_template_resource) as dispatcher_template_path:
+        template_root = Path(template_root_path)
+        dispatcher_template = Path(dispatcher_template_path)
+        if not dispatcher_template.exists():
+            raise HandoffError(f"dispatcher template missing: {dispatcher_template}")
+        if not template_root.exists():
+            raise HandoffError(f"pool template missing: {template_root}")
 
-    template_root = _pool_template_root()
-    if not template_root.exists():
-        raise HandoffError(f"pool template missing: {template_root}")
-
-    replacements = {
-        INIT_PLACEHOLDER_WORKSPACE_ID: workspace_id,
-        INIT_PLACEHOLDER_CONFIG_PATH: str(config_path),
-        INIT_PLACEHOLDER_STORE_PATH: str(store_path),
-        INIT_PLACEHOLDER_DISPATCHER_TEMPLATE: str(dispatcher_template),
-    }
-    for src in template_root.rglob("*"):
-        rel = src.relative_to(template_root)
-        if rel.parts[0] == "dispatchers":
-            dst = dispatchers_dir / Path(*rel.parts[1:])
-        else:
-            dst = queue_dir / rel
-        if src.is_dir():
-            dst.mkdir(parents=True, exist_ok=True)
-            continue
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            text = src.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            shutil.copyfile(src, dst)
-        else:
-            for placeholder, value in replacements.items():
-                text = text.replace(placeholder, value)
-            dst.write_text(text, encoding="utf-8")
-        src_mode = src.stat().st_mode
-        if src_mode & stat.S_IXUSR:
-            dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        replacements = {
+            INIT_PLACEHOLDER_WORKSPACE_ID: workspace_id,
+            INIT_PLACEHOLDER_CONFIG_PATH: str(config_path),
+            INIT_PLACEHOLDER_STORE_PATH: str(store_path),
+            INIT_PLACEHOLDER_DISPATCHER_TEMPLATE: str(dispatcher_template),
+        }
+        for src in template_root.rglob("*"):
+            rel = src.relative_to(template_root)
+            if rel.parts[0] == "dispatchers":
+                dst = dispatchers_dir / Path(*rel.parts[1:])
+            else:
+                dst = queue_dir / rel
+            if src.is_dir():
+                dst.mkdir(parents=True, exist_ok=True)
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                text = src.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                shutil.copyfile(src, dst)
+            else:
+                for placeholder, value in replacements.items():
+                    text = text.replace(placeholder, value)
+                dst.write_text(text, encoding="utf-8")
+            src_mode = src.stat().st_mode
+            if src_mode & stat.S_IXUSR:
+                dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     for relative in ("claude.sh", "codex.sh"):
         candidate = dispatchers_dir / relative
@@ -594,20 +599,6 @@ def _cmd_init_pool(args: argparse.Namespace) -> int:
         print(f"polling prompt: {dispatchers_dir / 'POLLING-CHAT-PROMPT.md'}")
         print(f"next: run `bash {dispatchers_dir / 'claude.sh'}` or paste the polling prompt into a chat.")
     return 0
-
-
-def _template_root() -> Path:
-    # Locate templates/workspace inside the package.
-    return Path(__file__).resolve().parent / "templates" / "workspace"
-
-
-def _pool_template_root() -> Path:
-    return Path(__file__).resolve().parent / "templates" / "pool"
-
-
-def _workspace_dispatcher_template() -> Path:
-    return Path(__file__).resolve().parent / "templates" / "workspace" / "dispatcher.sh"
-
 
 def _wait_for_lane_task(
     store: HandoffStore,
