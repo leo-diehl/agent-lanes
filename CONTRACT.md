@@ -234,6 +234,10 @@ the task record. It is not used for lookup; `wait` and `status` always take the
 generated task id, never the correlation id. When omitted, the correlation id
 defaults to the task-file basename (if `--task` is supplied) or the lane name.
 
+`init --queue-root <path>` scaffolds the engine config with `queue_root` pointing
+at an existing or future queue state directory. This is commonly used to point
+many racks at one workspace-level queue.
+
 `--verdict` on `respond` is optional. The verdict-conditional logic
 (`--blocking-count > 0` requires `needs-revision`) only fires when verdict is set.
 
@@ -288,11 +292,17 @@ conversational continuity by walking the parent chain at claim time.
 ## 14. Metadata extension point
 
 `metadata: dict` is a free-form key-value extension point on tasks, responses, and
-task definitions. The library does not enforce keys. Convention keys (documented
-but not validated):
+task definitions. The library does not enforce keys. Convention keys are
+documented here so dispatchers can share vocabulary, but they are not validated by
+the engine.
 
-- `model_hint` — preferred model class for the dispatcher (e.g. `opus`, `haiku`).
-- `min_effort` — minimum reasoning effort tier.
+Canonical convention keys:
+
+- `required_vendor` (`claude` | `codex` | `any`) — vendor routing for dispatchers.
+- `model_class` (`opus` | `sonnet` | `haiku` | `gpt-5-3` |
+  `gpt-5-3-spark` | `any`) — model class request for the spawned agent.
+- `effort` (`low` | `medium` | `high` | `xhigh`) — reasoning effort hint for the
+  spawned agent.
 - `required_capabilities` — list of capability tags the responder should have.
 - `model_used` — model the responder actually used.
 - `effort_used` — reasoning effort the responder actually applied.
@@ -300,16 +310,24 @@ but not validated):
 - `thread_id` — correlation id for multi-turn threads.
 - `parent_task_id` — for thread reconstruction.
 
+`model_class` is the preferred replacement for older `model_hint` conventions.
+`effort` is the preferred replacement for older `min_effort` conventions.
+Dispatchers may accept the older names for compatibility, but new task definitions
+should use the canonical keys above.
+
 Older clients ignore unknown keys.
 
 ## 15. Lane as capability tier
 
-Lanes encode the primary routing decision: which capability tier should handle the
-task. Conventional lane names follow the form `<vendor>-<tier>` (e.g.
+Lanes encode the subscription boundary: which queue stream a dispatcher polls.
+For lane-tier topologies, lanes may also encode the primary routing decision.
+Conventional lane names follow the form `<vendor>-<tier>` (e.g.
 `claude-reviewer`, `codex-haiku`) but the library imposes no schema.
 
-Within-tier nuance — model hint, effort, required capabilities — lives in
-`metadata`. Lanes route; metadata refines.
+For shared-pool topologies, many vendors may subscribe to the same broad lane
+(commonly `default`) and use task metadata for the routing decision. In that
+pattern, `required_vendor` routes, while `model_class`, `effort`, and
+`required_capabilities` refine the spawn request.
 
 ## 16. Dispatcher pattern
 
@@ -326,7 +344,46 @@ The dispatcher itself is task-agnostic; each task carries its own prompt. Contex
 does not accumulate. This is the default; see
 `agent_lanes/templates/workspace/dispatcher.sh`.
 
-## 17. Task threading pattern
+**Vendor-routed dispatchers (recommended for multi-vendor pools).** Run one
+long-running dispatcher per vendor (for example, `VENDOR=claude` and
+`VENDOR=codex`), all subscribed to the same lane (typically `default`) on the same
+queue. Each dispatcher inspects the task's `required_vendor` metadata. If
+`required_vendor != VENDOR` and `required_vendor != any`, it skips without
+claiming: a probe-then-skip flow. The matching dispatcher claims, resolves
+`model_class` and `effort` to vendor-specific CLI flags, spawns a fresh headless
+agent, captures stdout, and responds.
+
+This makes the dispatcher a stateless router and spawner. The task carries its own
+routing intent: vendor, model class, and effort. The dispatcher does not have its
+own model or effort policy beyond resolving the task metadata to vendor-specific
+flags.
+
+## 17. Shared-queue topology (workspace-level pools)
+
+A workspace-level pool uses one queue for many projects or racks. The shared queue
+has its own engine config, such as `~/workspace/.agent-lanes-queue/handoff.yaml`,
+and queue state directory, such as `~/workspace/.agent-lanes-queue/state/`. Each
+rack's `handoff/handoff.yaml` sets `queue_root` to that shared state path.
+
+Use `agent-lanes init --queue-root <path>` to scaffold a rack already pointed at a
+shared queue:
+
+```bash
+agent-lanes init --queue-root ~/workspace/.agent-lanes-queue/state
+```
+
+Dispatchers then poll the shared queue rather than a rack-local queue. Multiple
+projects pull from the same dispatcher capacity, which is useful for personal
+multi-rack workflows where one operator wants shared infrastructure across many
+working directories. Revisit this topology for team usage, where ownership,
+capacity, and isolation usually need a stricter contract.
+
+Lane definitions live on the workspace-level engine config that owns the shared
+queue. Rack-level configs inherit those lane definitions implicitly by pointing
+`queue_root` at the shared queue. Treat lanes as bound to the queue, not to an
+individual rack.
+
+## 18. Task threading pattern
 
 Stateless dispatchers reconstruct conversational continuity using two metadata
 keys:

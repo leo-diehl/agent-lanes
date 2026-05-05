@@ -63,6 +63,43 @@ End-to-end in four steps. Run from the project root.
    ./handoff/bin/handoff wait <task-id> --json
    ```
 
+## Quickstart for multi-rack pools
+
+Use a shared queue when one workspace has many racks and you want one dispatcher
+pool to serve all of them.
+
+```bash
+# One-time workspace setup
+mkdir -p ~/workspace/.agent-lanes-queue/state
+cat > ~/workspace/.agent-lanes-queue/handoff.yaml <<'YAML'
+workspace_id: my-workspace
+workspace_root: ..
+queue_root: state
+lanes:
+  default:
+    description: Shared lane; routing via task metadata
+YAML
+
+# Per-rack setup
+cd ~/workspace/<rack>
+agent-lanes init --queue-root ~/workspace/.agent-lanes-queue/state
+mkdir tasks
+# write tasks/<id>.yaml with metadata.required_vendor / model_class / effort
+
+# Run dispatchers (one per vendor, from a directory containing dispatcher.sh)
+VENDOR=claude QUEUE_ROOT=~/workspace/.agent-lanes-queue/state bash dispatcher.sh
+VENDOR=codex  QUEUE_ROOT=~/workspace/.agent-lanes-queue/state bash dispatcher.sh
+
+# Submit from any rack's orchestrator
+./handoff/bin/handoff submit --task tasks/<id>.yaml --json
+```
+
+In a scaffolded rack, the dispatcher script lives at `handoff/dispatcher.sh`; the
+source template lives at `agent_lanes/templates/workspace/dispatcher.sh`. The
+canonical metadata vocabulary is in `CONTRACT.md` section 14. Vendor-routed
+dispatcher behavior is in section 16, and the shared-queue topology is in section
+17.
+
 ## Define your first task
 
 A task is a small standalone YAML file. It declares which lane to route to, any
@@ -72,7 +109,7 @@ default metadata, and the prompt body (inline or via a file).
 # tasks/code-review.yaml
 lane: claude-reviewer
 metadata:
-  min_effort: high
+  effort: high
 prompt_file: ../docs/prompts/code-review.md
 ```
 
@@ -97,13 +134,13 @@ You can also submit fully inline without a task file:
   --request-from outputs/01-step-output.md \
   --response-to outputs/01-step-review.md \
   --prompt "Review for missing evidence." \
-  --metadata min_effort=high \
+  --metadata effort=high \
   --json
 ```
 
 ## Common patterns
 
-agent-lanes is structured RPC; review is one application. Four common shapes:
+agent-lanes is structured RPC; review is one application. Five common shapes:
 
 **Review / checkpoint.** An orchestrator submits an artifact and waits for a verdict
 (`accept`, `accept-with-follow-ups`, `needs-revision`). The reviewer claims, reads
@@ -122,6 +159,17 @@ or any embarrassingly-parallel work.
 go into stage 2's request file; stage 2 outputs into stage 3's. Threading metadata
 (`thread_id`, `parent_task_id`) lets dispatchers reconstruct conversational
 continuity across iterations.
+
+**Vendor-routed pool.** One project, many racks, one queue. A pool of long-running
+dispatchers, one per vendor on this machine, subscribes to the queue's default
+lane. Each task carries metadata declaring which vendor must handle it
+(`required_vendor`), which model class to spawn (`model_class`), and what reasoning
+effort to request (`effort`). See `CONTRACT.md` section 14 for the canonical
+metadata values.
+
+Dispatchers inspect metadata, skip if they are not a match, claim if matching, and
+spawn a fresh headless agent with the resolved flags. The orchestrator is the only
+chat the operator opens per rack; dispatchers are infrastructure.
 
 ## Orchestrator-side usage
 
