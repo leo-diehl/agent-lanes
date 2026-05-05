@@ -1,0 +1,6 @@
+workspace_id: two-terminal-example
+workspace_root: ..
+queue_root: state
+lanes:
+  review:
+    description: Demo review lane
