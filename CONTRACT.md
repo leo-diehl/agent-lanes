@@ -71,6 +71,8 @@ Accepted fields:
 - `workspace_root` (required) — path to the project root, relative to the
   `handoff.yaml` directory or absolute.
 - `queue_root` — directory where queue state is written; defaults to `state`.
+  Point multiple racks at the same shared absolute queue path to run a
+  workspace-level dispatcher pool.
 - `lanes` — mapping of lane names to optional metadata.
 
 Path traversal that escapes `workspace_root` is rejected.
@@ -198,7 +200,7 @@ Events are append-only under the task lock. Event types include `created`,
 ## 11. CLI
 
 ```text
-init [--workspace-id NAME] [--workspace-root PATH] [PATH]
+init [--workspace-id NAME] [--workspace-root PATH] [--queue-root PATH] [PATH]
 submit [--task <path>] [--task-id <correlation-id>] [--lane <lane>]
        [--request-from <path>] [--response-to <path>]
        [--worktree-path <path>] [--branch <name>]

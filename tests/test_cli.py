@@ -528,7 +528,35 @@ def test_cli_init_scaffolds_engine_only(tmp_path: Path, capsys) -> None:
     yaml_text = (handoff_dir / "handoff.yaml").read_text(encoding="utf-8")
     assert "{{WORKSPACE_ID}}" not in yaml_text
     assert "{{WORKSPACE_ROOT}}" not in yaml_text
+    assert "{{QUEUE_ROOT}}" not in yaml_text
     assert "workspace_id: demo" in yaml_text
+    assert "queue_root: state" in yaml_text
+
+
+def test_cli_init_queue_root_absolute_passthrough(tmp_path: Path, capsys) -> None:
+    target = tmp_path / "fresh-project"
+    target.mkdir()
+    queue_root = "/some/abs/path"
+
+    assert main(["init", str(target), "--queue-root", queue_root, "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["queue_root"] == queue_root
+
+    yaml_text = (target / "handoff" / "handoff.yaml").read_text(encoding="utf-8")
+    assert f"queue_root: {queue_root}" in yaml_text
+
+
+def test_cli_init_queue_root_relative_passthrough(tmp_path: Path, capsys) -> None:
+    target = tmp_path / "fresh-project"
+    target.mkdir()
+    queue_root = "../shared/state"
+
+    assert main(["init", str(target), "--queue-root", queue_root, "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["queue_root"] == queue_root
+
+    yaml_text = (target / "handoff" / "handoff.yaml").read_text(encoding="utf-8")
+    assert f"queue_root: {queue_root}" in yaml_text
 
 
 def test_cli_init_refuses_to_overwrite(tmp_path: Path, capsys) -> None:

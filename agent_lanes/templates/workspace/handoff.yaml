@@ -13,10 +13,14 @@
 #
 # This file should rarely change. Add a lane when you introduce a new capability
 # tier; otherwise it is set-and-forget.
+#
+# By default this rack owns its local queue at `handoff/state`. To run a
+# workspace-level pool of dispatchers serving multiple racks, point `queue_root`
+# at the same shared absolute queue path from each rack's handoff.yaml.
 
 workspace_id: {{WORKSPACE_ID}}
 workspace_root: {{WORKSPACE_ROOT}}
-queue_root: state
+queue_root: {{QUEUE_ROOT}}
 
 lanes:
   default:

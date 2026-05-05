@@ -26,6 +26,7 @@ from .store import HandoffStore
 
 INIT_PLACEHOLDER_WORKSPACE_ID = "{{WORKSPACE_ID}}"
 INIT_PLACEHOLDER_WORKSPACE_ROOT = "{{WORKSPACE_ROOT}}"
+INIT_PLACEHOLDER_QUEUE_ROOT = "{{QUEUE_ROOT}}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -153,6 +154,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--workspace-root",
         default="..",
         help="workspace root recorded in handoff.yaml, relative to handoff/ (default: ..)",
+    )
+    init_cmd.add_argument(
+        "--queue-root",
+        default="state",
+        help="queue root recorded in handoff.yaml; absolute or relative path is preserved verbatim (default: state)",
     )
 
     # submit -----------------------------------------------------------
@@ -434,6 +440,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
     workspace_id = args.workspace_id or target_root.name or "workspace"
     workspace_root = args.workspace_root or ".."
+    queue_root = args.queue_root or "state"
 
     template_root = _template_root()
     if not template_root.exists():
@@ -454,6 +461,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
         else:
             text = text.replace(INIT_PLACEHOLDER_WORKSPACE_ID, workspace_id)
             text = text.replace(INIT_PLACEHOLDER_WORKSPACE_ROOT, workspace_root)
+            text = text.replace(INIT_PLACEHOLDER_QUEUE_ROOT, queue_root)
             dst.write_text(text, encoding="utf-8")
         # preserve executable bit
         src_mode = src.stat().st_mode
@@ -471,6 +479,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
         "handoff": str(handoff_dir),
         "workspace_id": workspace_id,
         "workspace_root": workspace_root,
+        "queue_root": queue_root,
         "next_steps": [
             "create task definitions outside handoff/ (commonly tasks/<id>.yaml)",
             "start a dispatcher with: bash handoff/dispatcher.sh",
@@ -483,6 +492,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
         print(f"agent-lanes engine scaffolded at: {handoff_dir}")
         print(f"workspace_id: {workspace_id}")
         print(f"workspace_root: {workspace_root}")
+        print(f"queue_root: {queue_root}")
         print(
             "next: create task definitions outside handoff/ (e.g. tasks/<id>.yaml), "
             "start a dispatcher with `bash handoff/dispatcher.sh`, "
