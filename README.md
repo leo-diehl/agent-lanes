@@ -1,5 +1,9 @@
 # agent-lanes
 
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/leo-diehl/agent-lanes/actions/workflows/test.yml/badge.svg)](https://github.com/leo-diehl/agent-lanes/actions/workflows/test.yml)
+
 A local, file-backed, structured-RPC queue for AI coding agents. agent-lanes lets one
 agent submit a task and another claim, work, and respond — over a shared filesystem
 queue, no daemon required. Cross-vendor by design: any agent that can run shell
@@ -124,6 +128,17 @@ on your CLI setup, that may use per-token API billing.
 Both modes consume the same queue. You can mix and match them. The canonical
 metadata vocabulary is in `CONTRACT.md` section 14. Vendor-routed dispatcher
 behavior is in section 16, and the shared-queue topology is in section 17.
+
+## Try it
+
+The `examples/two-terminal/` directory has a 30-second demo: one terminal long-polls a lane and responds; another submits a task and reads the response. No LLM calls, just proof that the claim/respond loop works against a real queue.
+
+```bash
+cd examples/two-terminal
+bash agent-b.sh &
+bash agent-a.sh
+wait
+```
 
 ## Define your first task
 
@@ -259,9 +274,13 @@ agent-lanes is local-first and protocol-light. Compared to alternatives:
 - **agentpost** and similar frameworks bundle orchestration. agent-lanes ships only
   the queue primitives — your orchestrator stays a few shell commands away.
 
+## Platform support
+
+POSIX-only: macOS and Linux. The store uses `fcntl.flock` for inter-process locking, so Windows is unsupported; Windows users should run via WSL2.
+
 ## Status
 
-`v0.1` — internal use. Repo private until the wider open-source flip.
+v0.1 — early. APIs may change before v1.0.
 
 ## License
 
