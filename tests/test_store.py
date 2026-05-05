@@ -263,28 +263,28 @@ def test_wait_for_response_existing_task_times_out(tmp_path: Path) -> None:
         store.wait_for_response(task["id"], config=config, timeout=0.01)
 
 
-def test_config_rejects_path_escape(tmp_path: Path) -> None:
+def test_config_allows_queue_root_outside_workspace(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     handoff = workspace / "handoff"
-    outputs = workspace / "outputs"
+    shared_state = tmp_path / "shared-queue" / "state"
     handoff.mkdir(parents=True)
-    outputs.mkdir()
-    (outputs / "01-step-output.md").write_text("output", encoding="utf-8")
     config_path = handoff / "handoff.yaml"
     config_path.write_text(
-        """
-workspace_id: bad-workspace
+        f"""
+workspace_id: shared-queue-workspace
 workspace_root: ..
-queue_root: ../../escaped-state
+queue_root: {shared_state}
 
 lanes:
-  default: {}
+  default: {{}}
 """.lstrip(),
         encoding="utf-8",
     )
 
-    with pytest.raises(ConfigError, match="escapes workspace root"):
-        load_config(config_path)
+    config = load_config(config_path)
+
+    assert config.workspace_root == workspace.resolve()
+    assert config.store_root == shared_state.resolve()
 
 
 def test_config_rejects_checkpoints_section(tmp_path: Path) -> None:

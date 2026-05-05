@@ -77,7 +77,6 @@ def load_config(config_path: str | Path, store_override: str | Path | None = Non
 
     queue_root_raw = store_override if store_override is not None else data.get("queue_root", "state")
     store_root = _resolve_path(config_dir, queue_root_raw).resolve()
-    _require_inside(workspace_root, store_root, "queue_root")
 
     worktree_raw = data.get("worktree_path")
     worktree_path = _resolve_path(config_dir, worktree_raw).resolve() if worktree_raw else None
@@ -176,10 +175,3 @@ def _resolve_path(base: Path, value: Any) -> Path:
     if candidate.is_absolute():
         return candidate
     return base / candidate
-
-
-def _require_inside(root: Path, candidate: Path, label: str) -> None:
-    try:
-        candidate.relative_to(root)
-    except ValueError as exc:
-        raise ConfigError(f"{label} escapes workspace root: {candidate}") from exc

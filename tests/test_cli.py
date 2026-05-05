@@ -559,6 +559,35 @@ def test_cli_init_queue_root_relative_passthrough(tmp_path: Path, capsys) -> Non
     assert f"queue_root: {queue_root}" in yaml_text
 
 
+def test_cli_status_rack_allows_shared_queue_outside_workspace(tmp_path: Path, capsys) -> None:
+    rack = tmp_path / "rack"
+    handoff = rack / "handoff"
+    shared_state = tmp_path / "shared-queue" / "state"
+    handoff.mkdir(parents=True)
+    config_path = handoff / "handoff.yaml"
+    config_path.write_text(
+        f"""
+workspace_id: shared-queue-rack
+workspace_root: ..
+queue_root: {shared_state}
+
+lanes:
+  default:
+    description: shared lane
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config.workspace_root == rack.resolve()
+    assert config.store_root == shared_state.resolve()
+
+    assert main(["--config", str(config_path), "--store", str(shared_state), "status", "--rack", "--json"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["status"] == "ok"
+    assert status["count"] == 0
+
+
 def test_cli_init_refuses_to_overwrite(tmp_path: Path, capsys) -> None:
     target = tmp_path / "with-existing"
     target.mkdir()
