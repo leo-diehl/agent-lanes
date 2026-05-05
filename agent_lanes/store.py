@@ -41,11 +41,11 @@ class HandoffStore:
         if checkpoint is None:
             raise StoreError(f"unknown checkpoint: {checkpoint_id}")
         return self.create_task(
-            pack_id=config.pack_id,
+            workspace_id=config.workspace_id,
             checkpoint_id=checkpoint.id,
             source_agent=source_agent,
             lane=checkpoint.lane,
-            pack_root=config.pack_root,
+            workspace_root=config.workspace_root,
             worktree_path=config.worktree_path,
             expected_branch=config.expected_branch,
             request_path=checkpoint.request_from,
@@ -57,11 +57,11 @@ class HandoffStore:
     def create_task(
         self,
         *,
-        pack_id: str,
+        workspace_id: str,
         checkpoint_id: str,
         source_agent: str,
         lane: str,
-        pack_root: str | Path,
+        workspace_root: str | Path,
         worktree_path: str | Path | None,
         expected_branch: str | None,
         request_path: str | Path,
@@ -69,24 +69,24 @@ class HandoffStore:
         prompt: str,
         supporting_paths: list[str | Path | dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        pack_root_path = Path(pack_root).resolve()
+        workspace_root_path = Path(workspace_root).resolve()
         request = Path(request_path).resolve()
         response = Path(response_path).resolve()
-        _require_inside(pack_root_path, request, "request_path")
-        _require_inside(pack_root_path, response, "response_path")
+        _require_inside(workspace_root_path, request, "request_path")
+        _require_inside(workspace_root_path, response, "response_path")
         if not request.exists() or not request.is_file():
             raise StoreError(f"request source does not exist: {request}")
-        supporting = self._supporting_path_records(pack_root_path, supporting_paths or [])
+        supporting = self._supporting_path_records(workspace_root_path, supporting_paths or [])
         request_sha = sha256_file(request)
         created_at = iso_now()
         task_id = self._new_task_id(checkpoint_id, request_sha)
         task = {
             "id": task_id,
-            "pack_id": pack_id,
+            "workspace_id": workspace_id,
             "checkpoint_id": checkpoint_id,
             "source_agent": source_agent,
             "lane": lane,
-            "pack_root": str(pack_root_path),
+            "workspace_root": str(workspace_root_path),
             "worktree_path": str(Path(worktree_path).resolve()) if worktree_path else None,
             "expected_branch": expected_branch,
             "request_path": str(request),
@@ -109,7 +109,7 @@ class HandoffStore:
             task_dir.mkdir(parents=True, exist_ok=False)
             atomic_write_json(task_dir / "task.json", task)
             (task_dir / "events.jsonl").touch()
-            self._write_checkpoint_index(pack_id, checkpoint_id, task_id)
+            self._write_checkpoint_index(workspace_id, checkpoint_id, task_id)
             self._append_event_unlocked(task_id, "created", "task queued", {"lane": lane})
         return task
 
@@ -124,13 +124,13 @@ class HandoffStore:
             return ref
         if config is None:
             raise StoreError(f"unknown task id and no config for checkpoint lookup: {ref}")
-        task_id = self.latest_task_id(config.pack_id, ref)
+        task_id = self.latest_task_id(config.workspace_id, ref)
         if task_id is None:
             raise StoreError(f"no task found for checkpoint: {ref}")
         return task_id
 
-    def latest_task_id(self, pack_id: str, checkpoint_id: str) -> str | None:
-        index_path = self.index_dir / f"{slug(pack_id)}--{slug(checkpoint_id)}.json"
+    def latest_task_id(self, workspace_id: str, checkpoint_id: str) -> str | None:
+        index_path = self.index_dir / f"{slug(workspace_id)}--{slug(checkpoint_id)}.json"
         if not index_path.exists():
             return None
         return json.loads(index_path.read_text(encoding="utf-8"))["task_id"]
@@ -308,8 +308,8 @@ class HandoffStore:
     def write_response_output(self, task_id: str, response: dict[str, Any]) -> Path:
         task = self.get_task(task_id)
         response_path = Path(task["response_path"])
-        pack_root = Path(task["pack_root"])
-        _require_inside(pack_root, response_path.resolve(), "response_path")
+        workspace_root = Path(task["workspace_root"])
+        _require_inside(workspace_root, response_path.resolve(), "response_path")
         response_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(response_path, response["body"])
         return response_path
@@ -330,10 +330,10 @@ class HandoffStore:
     def _new_task_id(self, checkpoint_id: str, request_sha: str) -> str:
         return f"{timestamp_slug()}-{slug(checkpoint_id)}-{request_sha[:12]}"
 
-    def _write_checkpoint_index(self, pack_id: str, checkpoint_id: str, task_id: str) -> None:
+    def _write_checkpoint_index(self, workspace_id: str, checkpoint_id: str, task_id: str) -> None:
         atomic_write_json(
-            self.index_dir / f"{slug(pack_id)}--{slug(checkpoint_id)}.json",
-            {"pack_id": pack_id, "checkpoint_id": checkpoint_id, "task_id": task_id, "updated_at": iso_now()},
+            self.index_dir / f"{slug(workspace_id)}--{slug(checkpoint_id)}.json",
+            {"workspace_id": workspace_id, "checkpoint_id": checkpoint_id, "task_id": task_id, "updated_at": iso_now()},
         )
 
     def _append_event_unlocked(
@@ -374,7 +374,7 @@ class HandoffStore:
 
     def _supporting_path_records(
         self,
-        pack_root: Path,
+        workspace_root: Path,
         supporting_paths: list[str | Path | dict[str, Any]],
     ) -> list[dict[str, str]]:
         records: list[dict[str, str]] = []
@@ -384,9 +384,9 @@ class HandoffStore:
                 raise StoreError(f"supporting_paths[{index}] is missing path")
             path = Path(str(raw_path)).expanduser()
             if not path.is_absolute():
-                path = pack_root / path
+                path = workspace_root / path
             path = path.resolve()
-            _require_inside(pack_root, path, f"supporting_paths[{index}]")
+            _require_inside(workspace_root, path, f"supporting_paths[{index}]")
             if not path.exists() or not path.is_file():
                 raise StoreError(f"supporting path does not exist: {path}")
             records.append({"path": str(path), "sha256": sha256_file(path)})
@@ -441,4 +441,4 @@ def _require_inside(root: Path, candidate: Path, label: str) -> None:
     try:
         candidate.relative_to(root)
     except ValueError as exc:
-        raise StoreError(f"{label} escapes pack root: {candidate}") from exc
+        raise StoreError(f"{label} escapes workspace root: {candidate}") from exc

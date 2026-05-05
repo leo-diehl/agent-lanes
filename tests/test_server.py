@@ -26,8 +26,8 @@ def get_json(url: str) -> dict:
 
 
 def test_server_create_next_claim_respond_wait_flow(tmp_path: Path) -> None:
-    pack = tmp_path / "pack"
-    outputs = pack / "outputs"
+    workspace = tmp_path / "workspace"
+    outputs = workspace / "outputs"
     outputs.mkdir(parents=True)
     request_path = outputs / "01-step-output.md"
     request_path.write_text("# Server output\n", encoding="utf-8")
@@ -41,10 +41,10 @@ def test_server_create_next_claim_respond_wait_flow(tmp_path: Path) -> None:
         created = post_json(
             f"{base}/tasks",
             {
-                "pack_id": "server-pack",
+                "workspace_id": "server-workspace",
                 "checkpoint_id": "phase-01-review",
                 "lane": "claude-review",
-                "pack_root": str(pack),
+                "workspace_root": str(workspace),
                 "request_path": str(request_path),
                 "response_path": str(response_path),
                 "prompt": "Review via server.",

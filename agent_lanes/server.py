@@ -60,11 +60,11 @@ class HandoffRequestHandler(BaseHTTPRequestHandler):
             body = self._read_json()
             if parsed.path == "/tasks":
                 task = self.server.store.create_task(
-                    pack_id=body["pack_id"],
+                    workspace_id=body["workspace_id"],
                     checkpoint_id=body["checkpoint_id"],
                     source_agent=body.get("source_agent", "api"),
                     lane=body["lane"],
-                    pack_root=Path(body["pack_root"]),
+                    workspace_root=Path(body["workspace_root"]),
                     worktree_path=Path(body["worktree_path"]) if body.get("worktree_path") else None,
                     expected_branch=body.get("expected_branch"),
                     request_path=Path(body["request_path"]),

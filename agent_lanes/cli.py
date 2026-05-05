@@ -367,7 +367,7 @@ def _task_status_view(task: dict[str, object], store: HandoffStore) -> dict[str,
     view["lease_expired"] = lease_expired(task) if task["state"] == "claimed" else False
     view["missing_response"] = task["state"] == "completed" and not response_exists
     view["navigation"] = {
-        "pack_root": task.get("pack_root"),
+        "workspace_root": task.get("workspace_root"),
         "worktree_path": task.get("worktree_path"),
         "expected_branch": task.get("expected_branch"),
         "request_path": task.get("request_path"),

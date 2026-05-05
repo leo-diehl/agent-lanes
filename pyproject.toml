@@ -17,7 +17,7 @@ test = ["pytest>=8"]
 agent-lanes = "agent_lanes.cli:main"
 
 [tool.setuptools.package-data]
-agent_lanes = ["templates/pack-handoff/**"]
+agent_lanes = ["templates/workspace/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

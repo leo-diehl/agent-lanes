@@ -24,8 +24,8 @@ def make_pack(tmp_path: Path):
     config_path = handoff / "handoff.yaml"
     config_path.write_text(
         """
-pack_id: cli-pack
-pack_root: ..
+workspace_id: cli-workspace
+workspace_root: ..
 queue_root: state
 checkpoints:
   phase-01-review:
@@ -261,20 +261,20 @@ def test_cli_defaults_are_long_poll_friendly() -> None:
     assert claim.lease_seconds == DEFAULT_CLAIM_LEASE_SECONDS
 
 
-def test_pack_template_smoke_submit_claim_respond_wait(tmp_path: Path) -> None:
+def test_workspace_template_smoke_submit_claim_respond_wait(tmp_path: Path) -> None:
     runtime_root = Path(__file__).resolve().parents[1]
-    template = runtime_root / "agent_lanes" / "templates" / "pack-handoff"
-    pack = tmp_path / "template-pack"
-    outputs = pack / "outputs"
+    template = runtime_root / "agent_lanes" / "templates" / "workspace"
+    workspace = tmp_path / "template-workspace"
+    outputs = workspace / "outputs"
     outputs.mkdir(parents=True)
     (outputs / "01-step-output.md").write_text("# Template output\n", encoding="utf-8")
-    shutil.copytree(template, pack / "handoff")
-    wrapper = pack / "handoff" / "bin" / "handoff"
+    shutil.copytree(template, workspace / "handoff")
+    wrapper = workspace / "handoff" / "bin" / "handoff"
     wrapper.chmod(0o755)
-    claude_prompt = pack / "handoff" / "CLAUDE-REVIEWER-PROMPT.md"
+    claude_prompt = workspace / "handoff" / "CLAUDE-REVIEWER-PROMPT.md"
     assert claude_prompt.exists()
     assert "claude-review" in claude_prompt.read_text(encoding="utf-8")
-    monitor_prompt = pack / "handoff" / "POLLING-MONITOR-PROMPT.md"
+    monitor_prompt = workspace / "handoff" / "POLLING-MONITOR-PROMPT.md"
     assert monitor_prompt.exists()
     monitor_text = monitor_prompt.read_text(encoding="utf-8")
     assert "wait --lane claude-review --json" in monitor_text
@@ -285,7 +285,7 @@ def test_pack_template_smoke_submit_claim_respond_wait(tmp_path: Path) -> None:
 
     submit = subprocess.run(
         [str(wrapper), "--json", "submit", "phase-01-review"],
-        cwd=pack,
+        cwd=workspace,
         check=True,
         text=True,
         stdout=subprocess.PIPE,
@@ -295,7 +295,7 @@ def test_pack_template_smoke_submit_claim_respond_wait(tmp_path: Path) -> None:
 
     watched = subprocess.run(
         [str(wrapper), "--json", "watch", "--lane", "claude-review", "--timeout", "1"],
-        cwd=pack,
+        cwd=workspace,
         check=True,
         text=True,
         stdout=subprocess.PIPE,
@@ -305,7 +305,7 @@ def test_pack_template_smoke_submit_claim_respond_wait(tmp_path: Path) -> None:
 
     claim = subprocess.run(
         [str(wrapper), "--json", "claim", task_id, "--owner", "template-worker"],
-        cwd=pack,
+        cwd=workspace,
         check=True,
         text=True,
         stdout=subprocess.PIPE,
@@ -317,7 +317,7 @@ def test_pack_template_smoke_submit_claim_respond_wait(tmp_path: Path) -> None:
     response_file.write_text("Template review complete.\n", encoding="utf-8")
     subprocess.run(
         [str(wrapper), "--json", "respond", task_id, "--claim-token", claim_token, "--file", str(response_file)],
-        cwd=pack,
+        cwd=workspace,
         check=True,
         text=True,
         stdout=subprocess.PIPE,
@@ -325,7 +325,7 @@ def test_pack_template_smoke_submit_claim_respond_wait(tmp_path: Path) -> None:
     )
     subprocess.run(
         [str(wrapper), "--json", "wait", "phase-01-review", "--timeout", "1"],
-        cwd=pack,
+        cwd=workspace,
         check=True,
         text=True,
         stdout=subprocess.PIPE,

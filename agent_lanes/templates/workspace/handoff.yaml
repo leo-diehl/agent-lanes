@@ -1,5 +1,5 @@
-pack_id: example-pack
-pack_root: ..
+workspace_id: example-workspace
+workspace_root: ..
 queue_root: state
 checkpoints:
   phase-01-review:
@@ -9,5 +9,5 @@ checkpoints:
     response_to: ../outputs/01-step-review.md
     required: true
     prompt: |
-      Review this step output for unsupported claims, missing evidence, contradictions, and
-      follow-up questions that block the next prompt-pack step.
+      Review this step output for unsupported claims, missing evidence, contradictions,
+      and follow-up questions that block the next step.

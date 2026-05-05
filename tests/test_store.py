@@ -21,8 +21,8 @@ def make_pack(tmp_path: Path):
     config_path = handoff / "handoff.yaml"
     config_path.write_text(
         """
-pack_id: test-pack
-pack_root: ..
+workspace_id: test-workspace
+workspace_root: ..
 queue_root: state
 checkpoints:
   phase-01-review:
@@ -47,7 +47,7 @@ def test_store_creates_task_with_valid_state(tmp_path: Path) -> None:
     assert task["id"]
     assert task["request_sha256"]
     assert (config.store_root / "tasks" / task["id"] / "task.json").exists()
-    assert store.latest_task_id("test-pack", "phase-01-review") == task["id"]
+    assert store.latest_task_id("test-workspace", "phase-01-review") == task["id"]
 
 
 def test_store_records_supporting_paths_with_hashes(tmp_path: Path) -> None:
@@ -57,8 +57,8 @@ def test_store_records_supporting_paths_with_hashes(tmp_path: Path) -> None:
     config_path = pack / "handoff" / "handoff.yaml"
     config_path.write_text(
         """
-pack_id: support-pack
-pack_root: ..
+workspace_id: support-workspace
+workspace_root: ..
 queue_root: state
 checkpoints:
   meta-review:
@@ -219,8 +219,8 @@ def test_config_rejects_path_escape(tmp_path: Path) -> None:
     config_path = handoff / "handoff.yaml"
     config_path.write_text(
         """
-pack_id: bad-pack
-pack_root: ..
+workspace_id: bad-workspace
+workspace_root: ..
 queue_root: state
 checkpoints:
   bad-review:
@@ -232,5 +232,5 @@ checkpoints:
         encoding="utf-8",
     )
 
-    with pytest.raises(ConfigError, match="escapes pack root"):
+    with pytest.raises(ConfigError, match="escapes workspace root"):
         load_config(config_path)

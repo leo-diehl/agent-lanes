@@ -11,7 +11,7 @@ from .store import HandoffStore
 
 def run_self_test() -> str:
     with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp) / "pack"
+        root = Path(tmp) / "workspace"
         handoff = root / "handoff"
         outputs = root / "outputs"
         handoff.mkdir(parents=True)
@@ -21,8 +21,8 @@ def run_self_test() -> str:
         config_path = handoff / "handoff.yaml"
         config_path.write_text(
             """
-pack_id: self-test-pack
-pack_root: ..
+workspace_id: self-test-workspace
+workspace_root: ..
 queue_root: state
 checkpoints:
   phase-01-review:

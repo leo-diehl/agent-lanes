@@ -23,8 +23,8 @@ class CheckpointConfig:
 class RuntimeConfig:
     path: Path
     config_dir: Path
-    pack_id: str
-    pack_root: Path
+    workspace_id: str
+    workspace_root: Path
     store_root: Path
     worktree_path: Path | None
     expected_branch: str | None
@@ -39,16 +39,16 @@ def load_config(config_path: str | Path, store_override: str | Path | None = Non
     data = _load_mapping(path)
     config_dir = path.parent
 
-    pack_id = str(data.get("pack_id") or "").strip()
-    if not pack_id:
-        raise ConfigError("handoff config must define pack_id")
+    workspace_id = str(data.get("workspace_id") or "").strip()
+    if not workspace_id:
+        raise ConfigError("handoff config must define workspace_id")
 
-    pack_root_raw = data.get("pack_root", "..")
-    pack_root = _resolve_path(config_dir, pack_root_raw).resolve()
+    workspace_root_raw = data.get("workspace_root", "..")
+    workspace_root = _resolve_path(config_dir, workspace_root_raw).resolve()
 
     queue_root_raw = store_override if store_override is not None else data.get("queue_root", "state")
     store_root = _resolve_path(config_dir, queue_root_raw).resolve()
-    _require_inside(pack_root, store_root, "queue_root")
+    _require_inside(workspace_root, store_root, "queue_root")
 
     worktree_raw = data.get("worktree_path")
     worktree_path = _resolve_path(config_dir, worktree_raw).resolve() if worktree_raw else None
@@ -67,9 +67,9 @@ def load_config(config_path: str | Path, store_override: str | Path | None = Non
             raise ConfigError(f"checkpoint {checkpoint_id!r} must define lane")
         request_from = _resolve_path(config_dir, raw.get("request_from")).resolve()
         response_to = _resolve_path(config_dir, raw.get("response_to")).resolve()
-        _require_inside(pack_root, request_from, f"{checkpoint_id}.request_from")
-        _require_inside(pack_root, response_to, f"{checkpoint_id}.response_to")
-        supporting_paths = _supporting_paths(config_dir, pack_root, checkpoint_id, raw.get("supporting_paths", []))
+        _require_inside(workspace_root, request_from, f"{checkpoint_id}.request_from")
+        _require_inside(workspace_root, response_to, f"{checkpoint_id}.response_to")
+        supporting_paths = _supporting_paths(config_dir, workspace_root, checkpoint_id, raw.get("supporting_paths", []))
         prompt = str(raw.get("prompt") or "").strip()
         checkpoints[str(checkpoint_id)] = CheckpointConfig(
             id=str(checkpoint_id),
@@ -84,8 +84,8 @@ def load_config(config_path: str | Path, store_override: str | Path | None = Non
     return RuntimeConfig(
         path=path,
         config_dir=config_dir,
-        pack_id=pack_id,
-        pack_root=pack_root,
+        workspace_id=workspace_id,
+        workspace_root=workspace_root,
         store_root=store_root,
         worktree_path=worktree_path,
         expected_branch=str(expected_branch) if expected_branch else None,
@@ -117,7 +117,7 @@ def _resolve_path(base: Path, value: Any) -> Path:
     return base / candidate
 
 
-def _supporting_paths(config_dir: Path, pack_root: Path, checkpoint_id: object, raw_value: Any) -> list[Path]:
+def _supporting_paths(config_dir: Path, workspace_root: Path, checkpoint_id: object, raw_value: Any) -> list[Path]:
     if raw_value is None:
         return []
     if not isinstance(raw_value, list):
@@ -126,7 +126,7 @@ def _supporting_paths(config_dir: Path, pack_root: Path, checkpoint_id: object, 
     for index, item in enumerate(raw_value):
         raw_path = item.get("path") if isinstance(item, dict) else item
         path = _resolve_path(config_dir, raw_path).resolve()
-        _require_inside(pack_root, path, f"{checkpoint_id}.supporting_paths[{index}]")
+        _require_inside(workspace_root, path, f"{checkpoint_id}.supporting_paths[{index}]")
         paths.append(path)
     return paths
 
@@ -135,4 +135,4 @@ def _require_inside(root: Path, candidate: Path, label: str) -> None:
     try:
         candidate.relative_to(root)
     except ValueError as exc:
-        raise ConfigError(f"{label} escapes pack root: {candidate}") from exc
+        raise ConfigError(f"{label} escapes workspace root: {candidate}") from exc
