@@ -588,6 +588,82 @@ lanes:
     assert status["count"] == 0
 
 
+def test_cli_init_pool_scaffolds_shared_queue_and_dispatchers(tmp_path: Path, capsys) -> None:
+    target = tmp_path / "workspace"
+    target.mkdir()
+
+    assert main(["init-pool", str(target), "--workspace-id", "pool-demo", "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["status"] == "initialized"
+    assert out["workspace_id"] == "pool-demo"
+
+    queue_dir = target / ".agent-lanes-queue"
+    dispatchers_dir = target / "_dispatchers"
+    config_path = queue_dir / "handoff.yaml"
+    store_path = queue_dir / "state"
+    expected_dispatcher_template = (
+        Path(__file__).resolve().parents[1] / "agent_lanes" / "templates" / "workspace" / "dispatcher.sh"
+    )
+
+    expected_files = [
+        config_path,
+        store_path / ".gitkeep",
+        store_path / ".gitignore",
+        queue_dir / "README.md",
+        dispatchers_dir / "claude.sh",
+        dispatchers_dir / "codex.sh",
+        dispatchers_dir / "POLLING-CHAT-PROMPT.md",
+        dispatchers_dir / "README.md",
+    ]
+    for path in expected_files:
+        assert path.exists(), path
+
+    yaml_text = config_path.read_text(encoding="utf-8")
+    assert "workspace_id: pool-demo" in yaml_text
+    assert "queue_root: state" in yaml_text
+    assert "{{WORKSPACE_ID}}" not in yaml_text
+
+    for wrapper_name, vendor in (("claude.sh", "claude"), ("codex.sh", "codex")):
+        wrapper = dispatchers_dir / wrapper_name
+        wrapper_text = wrapper.read_text(encoding="utf-8")
+        assert f"VENDOR={vendor}" in wrapper_text
+        assert f'QUEUE_ROOT="{store_path}"' in wrapper_text
+        assert f'CONFIG="{config_path}"' in wrapper_text
+        assert f'bash "{expected_dispatcher_template}" "$@"' in wrapper_text
+        assert "{{CONFIG_PATH}}" not in wrapper_text
+        assert "{{STORE_PATH}}" not in wrapper_text
+        assert "{{DISPATCHER_TEMPLATE}}" not in wrapper_text
+        assert os.access(wrapper, os.X_OK)
+
+        result = subprocess.run(["bash", "-n", str(wrapper)], check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        assert result.returncode == 0, result.stderr
+
+    prompt_text = (dispatchers_dir / "POLLING-CHAT-PROMPT.md").read_text(encoding="utf-8")
+    assert str(config_path) in prompt_text
+    assert str(store_path) in prompt_text
+    assert "{{" not in prompt_text
+    assert "}}" not in prompt_text
+
+    readme_path = queue_dir / "README.md"
+    readme_path.write_text("marker\n", encoding="utf-8")
+    rc = main(["init-pool", str(target)])
+    assert rc == 1
+    assert "already exists" in capsys.readouterr().err
+    assert readme_path.read_text(encoding="utf-8") == "marker\n"
+
+
+def test_cli_init_pool_workspace_id_defaults_to_target_basename(tmp_path: Path, capsys) -> None:
+    target = tmp_path / "basename-workspace"
+    target.mkdir()
+
+    assert main(["init-pool", str(target), "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+
+    assert out["workspace_id"] == "basename-workspace"
+    yaml_text = (target / ".agent-lanes-queue" / "handoff.yaml").read_text(encoding="utf-8")
+    assert "workspace_id: basename-workspace" in yaml_text
+
+
 def test_cli_init_refuses_to_overwrite(tmp_path: Path, capsys) -> None:
     target = tmp_path / "with-existing"
     target.mkdir()
@@ -610,6 +686,7 @@ def test_python_module_help_runs() -> None:
     assert result.returncode == 0
     assert "agent-lanes" in result.stdout
     assert "init" in result.stdout
+    assert "init-pool" in result.stdout
     assert "release" in result.stdout
     assert "submit" in result.stdout
 
