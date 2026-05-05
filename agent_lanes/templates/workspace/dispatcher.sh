@@ -72,20 +72,26 @@ while true; do
     fi
 
     # If this task is part of a thread, walk the parent chain and concatenate
-    # prior responses for context.
+    # prior responses for context. parent_task_id lives on the TASK metadata
+    # (set by the orchestrator at submit time), so we read the next-parent id
+    # from `status --json` (.task.metadata.parent_task_id), not from the
+    # response payload.
     if [ -n "${THREAD_ID}" ] && [ -n "${PARENT_TASK_ID}" ]; then
       printf '\n--- thread context (thread_id=%s) ---\n' "${THREAD_ID}"
       CURRENT="${PARENT_TASK_ID}"
       while [ -n "${CURRENT}" ]; do
-        PRIOR="$("${HANDOFF}" wait "${CURRENT}" --timeout 1 --json --quiet 2>/dev/null || true)"
-        if [ -z "${PRIOR}" ]; then
+        PRIOR_TASK="$("${HANDOFF}" status "${CURRENT}" --json 2>/dev/null || true)"
+        if [ -z "${PRIOR_TASK}" ]; then
           break
         fi
-        PRIOR_BODY="$(printf '%s' "${PRIOR}" | jq -r '.response.body // empty')"
-        if [ -n "${PRIOR_BODY}" ]; then
-          printf '\n>>> task %s response:\n%s\n' "${CURRENT}" "${PRIOR_BODY}"
+        PRIOR_RESPONSE="$("${HANDOFF}" wait "${CURRENT}" --timeout 1 --json --quiet 2>/dev/null || true)"
+        if [ -n "${PRIOR_RESPONSE}" ]; then
+          PRIOR_BODY="$(printf '%s' "${PRIOR_RESPONSE}" | jq -r '.response.body // empty')"
+          if [ -n "${PRIOR_BODY}" ]; then
+            printf '\n>>> task %s response:\n%s\n' "${CURRENT}" "${PRIOR_BODY}"
+          fi
         fi
-        CURRENT="$(printf '%s' "${PRIOR}" | jq -r '.response.metadata.parent_task_id // empty')"
+        CURRENT="$(printf '%s' "${PRIOR_TASK}" | jq -r '.task.metadata.parent_task_id // empty')"
       done
       printf '\n--- end thread context ---\n\n'
     fi

@@ -197,8 +197,9 @@ Events are append-only under the task lock. Event types include `created`,
 
 ```text
 init [--workspace-id NAME] [--workspace-root PATH] [PATH]
-submit [--task <path>] [--lane <lane>] [--request-from <path>]
-       [--response-to <path>] [--worktree-path <path>] [--branch <name>]
+submit [--task <path>] [--task-id <correlation-id>] [--lane <lane>]
+       [--request-from <path>] [--response-to <path>]
+       [--worktree-path <path>] [--branch <name>]
        [--prompt <text>] [--prompt-file <path>] [--metadata key=value]...
        [--source-agent <name>] [--json]
 wait <task-id> [--timeout <seconds>] [--json]
@@ -223,6 +224,11 @@ self-test
 `submit` does **not** take a positional task-id argument; it takes `--task <path>`
 and/or inline flags. `wait` and `status` accept task IDs only — there is no
 checkpoint lookup.
+
+`--task-id <correlation-id>` is an optional free-form correlation tag stored on
+the task record. It is not used for lookup; `wait` and `status` always take the
+generated task id, never the correlation id. When omitted, the correlation id
+defaults to the task-file basename (if `--task` is supplied) or the lane name.
 
 `--verdict` on `respond` is optional. The verdict-conditional logic
 (`--blocking-count > 0` requires `needs-revision`) only fires when verdict is set.
