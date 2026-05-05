@@ -16,6 +16,7 @@
 #   QUEUE_ROOT  - absolute path to the shared queue state directory
 #
 # Optional environment:
+#   CONFIG              - handoff.yaml path (default: ${QUEUE_ROOT%/state}/handoff.yaml)
 #   LANE                - lane to poll (default: default)
 #   OWNER               - claim owner (default: ${USER}-${VENDOR}-$$)
 #   HEADLESS_AGENT_CMD  - base CLI invocation; defaults by vendor:
@@ -45,6 +46,11 @@ case "${QUEUE_ROOT}" in
   /*) ;;
   *) log "dispatcher: QUEUE_ROOT must be absolute, got: ${QUEUE_ROOT}"; exit 1 ;;
 esac
+CONFIG="${CONFIG:-${QUEUE_ROOT%/state}/handoff.yaml}"
+[ -f "${CONFIG}" ] || {
+  log "dispatcher: CONFIG file not found at ${CONFIG}; set CONFIG env var or ensure QUEUE_ROOT's parent contains handoff.yaml"
+  exit 1
+}
 
 LANE="${LANE:-default}"
 OWNER="${OWNER:-${USER:-worker}-${VENDOR}-$$}"
@@ -95,10 +101,10 @@ append_thread_context() {
   thread_file="$(mktemp)"
   current="${PARENT_TASK_ID}"
   while [ -n "${current}" ]; do
-    prior_task="$(agent-lanes --store "${QUEUE_ROOT}" status "${current}" --json 2>/dev/null || true)"
+    prior_task="$(agent-lanes --config "${CONFIG}" --store "${QUEUE_ROOT}" status "${current}" --json 2>/dev/null || true)"
     [ -n "${prior_task}" ] || break
 
-    prior_response="$(agent-lanes --store "${QUEUE_ROOT}" wait "${current}" --timeout 1 --json --quiet 2>/dev/null || true)"
+    prior_response="$(agent-lanes --config "${CONFIG}" --store "${QUEUE_ROOT}" wait "${current}" --timeout 1 --json --quiet 2>/dev/null || true)"
     prior_body="$(printf '%s' "${prior_response}" | jq -r '.response.body // empty')"
     if [ -n "${prior_body}" ]; then
       next_file="$(mktemp)"
@@ -136,7 +142,7 @@ build_input() {
 }
 
 while true; do
-  TASK_JSON="$(agent-lanes --store "${QUEUE_ROOT}" wait --lane "${LANE}" --json --quiet --timeout "${WAIT_TIMEOUT}" || true)"
+  TASK_JSON="$(agent-lanes --config "${CONFIG}" --store "${QUEUE_ROOT}" wait --lane "${LANE}" --json --quiet --timeout "${WAIT_TIMEOUT}" || true)"
   [ -n "${TASK_JSON}" ] || continue
   [ "$(printf '%s' "${TASK_JSON}" | jq -r '.status // empty')" = "task_available" ] || continue
 
@@ -159,7 +165,7 @@ while true; do
     continue
   fi
 
-  if ! CLAIM_JSON="$(agent-lanes --store "${QUEUE_ROOT}" claim "${TASK_ID}" --owner "${OWNER}" --lease-seconds "${LEASE_SECONDS}" --json 2>&1)"; then
+  if ! CLAIM_JSON="$(agent-lanes --config "${CONFIG}" --store "${QUEUE_ROOT}" claim "${TASK_ID}" --owner "${OWNER}" --lease-seconds "${LEASE_SECONDS}" --json 2>&1)"; then
     log "[race] task ${TASK_ID} claim failed: ${CLAIM_JSON}"
     continue
   fi
@@ -178,13 +184,13 @@ while true; do
   build_input "${INPUT_FILE}"
   if ! eval "${HEADLESS_AGENT_CMD} ${AGENT_FLAGS}" < "${INPUT_FILE}" > "${OUTPUT_FILE}" 2> "${ERROR_FILE}"; then
     { printf 'headless agent invocation failed for task %s\n' "${TASK_ID}"; [ -s "${ERROR_FILE}" ] && { printf '\n--- stderr ---\n'; cat "${ERROR_FILE}"; }; } > "${OUTPUT_FILE}"
-    agent-lanes --store "${QUEUE_ROOT}" respond "${TASK_ID}" --claim-token "${CLAIM_TOKEN}" --status failed --file "${OUTPUT_FILE}" --json >/dev/null
+    agent-lanes --config "${CONFIG}" --store "${QUEUE_ROOT}" respond "${TASK_ID}" --claim-token "${CLAIM_TOKEN}" --status failed --file "${OUTPUT_FILE}" --json >/dev/null
     rm -rf "${TMPDIR_RUN}"
     rm -f "${OUTPUT_FILE}"
     continue
   fi
 
-  agent-lanes --store "${QUEUE_ROOT}" respond "${TASK_ID}" --claim-token "${CLAIM_TOKEN}" --file "${OUTPUT_FILE}" --json >/dev/null
+  agent-lanes --config "${CONFIG}" --store "${QUEUE_ROOT}" respond "${TASK_ID}" --claim-token "${CLAIM_TOKEN}" --file "${OUTPUT_FILE}" --json >/dev/null
   rm -rf "${TMPDIR_RUN}"
   rm -f "${OUTPUT_FILE}"
 done
