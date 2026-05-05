@@ -271,14 +271,14 @@ def test_workspace_template_smoke_submit_claim_respond_wait(tmp_path: Path) -> N
     shutil.copytree(template, workspace / "handoff")
     wrapper = workspace / "handoff" / "bin" / "handoff"
     wrapper.chmod(0o755)
-    claude_prompt = workspace / "handoff" / "CLAUDE-REVIEWER-PROMPT.md"
-    assert claude_prompt.exists()
-    assert "claude-review" in claude_prompt.read_text(encoding="utf-8")
+    reviewer_prompt = workspace / "handoff" / "REVIEWER-AGENT-PROMPT.md"
+    assert reviewer_prompt.exists()
+    assert "claude-review" in reviewer_prompt.read_text(encoding="utf-8")
     monitor_prompt = workspace / "handoff" / "POLLING-MONITOR-PROMPT.md"
     assert monitor_prompt.exists()
     monitor_text = monitor_prompt.read_text(encoding="utf-8")
-    assert "wait --lane claude-review --json" in monitor_text
-    assert "Do not claim" in monitor_text
+    assert "wait --lane <LANE_NAME> --json" in monitor_text or "wait --lane claude-review --json" in monitor_text
+    assert "Do not claim" in monitor_text or "Do not run `claim`" in monitor_text
 
     env = os.environ.copy()
     env["AGENT_LANES_RUNTIME"] = str(runtime_root)

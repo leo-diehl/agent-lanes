@@ -1,273 +1,186 @@
-# Agent Handoff
+# agent-lanes
 
-Local, file-backed handoff runtime for Myelin prompt packs.
+A local, file-backed, structured-RPC queue for AI coding agents. agent-lanes lets one
+agent submit a task and another claim, work, and respond — over a shared filesystem
+queue, no daemon required. Cross-vendor by design: any agent that can run shell
+commands can participate.
 
-Use this when a prompt pack needs one agent to submit a review checkpoint and another agent or
-worker to answer it before the pack continues.
+## Architecture
 
-## Runtime And Pack Aspect
+The engine (the `handoff/` folder) is project-level infrastructure. It contains
+workspace metadata, lane definitions, the dispatcher script, the CLI wrapper, and
+runtime state. It does **not** contain task definitions. Tasks are separate YAML files
+that you keep wherever your project organizes them (commonly a `tasks/` folder). The
+engine routes tasks by lane; tasks reference lanes by name. The orchestrator submits
+either by pointing at a task file (`--task path/to/task.yaml`) or by specifying every
+field inline.
 
-Shared runtime:
-
-```text
-product/_operational/agent-handoff/
-```
-
-Pack-local aspect copied into a prompt pack:
-
-```text
-<prompt-pack>/handoff/
-  README.md
-  CLAUDE-REVIEWER-PROMPT.md
-  POLLING-MONITOR-PROMPT.md
-  handoff.yaml
-  bin/handoff
-  state/
-```
-
-Durable review outputs should live in the pack's `outputs/` folder. Transient queue state lives in
-`handoff/state/`.
-
-## Common Commands
-
-From a prompt pack with a copied `handoff/` folder:
+## Install
 
 ```bash
-./handoff/bin/handoff submit phase-01-review
-./handoff/bin/handoff wait phase-01-review
-./handoff/bin/handoff status phase-01-review
+pip install -e .
 ```
 
-For a lane monitor and reviewer:
+This installs the `agent-lanes` console script and makes `agent_lanes` importable.
+
+## Quickstart
+
+End-to-end in four steps. Run from the project root.
+
+1. Scaffold the engine:
+
+   ```bash
+   agent-lanes init
+   ```
+
+   This creates `handoff/` with engine config, dispatcher script, CLI wrapper, and
+   prompt templates. It does not create a `tasks/` folder; that is yours to organize.
+
+2. Define your first task (see "Define your first task" below).
+
+3. Start a dispatcher in one terminal:
+
+   ```bash
+   bash handoff/dispatcher.sh
+   ```
+
+   The dispatcher long-polls the lane and pipes each arriving task to a fresh
+   headless-agent invocation. While idle it consumes zero tokens.
+
+4. From an orchestrator chat (or any shell), submit a task:
+
+   ```bash
+   ./handoff/bin/handoff submit \
+     --task tasks/code-review.yaml \
+     --request-from outputs/01-step-output.md \
+     --response-to outputs/01-step-review.md \
+     --json
+   ```
+
+   Then wait for the response:
+
+   ```bash
+   ./handoff/bin/handoff wait <task-id> --json
+   ```
+
+## Define your first task
+
+A task is a small standalone YAML file. It declares which lane to route to, any
+default metadata, and the prompt body (inline or via a file).
+
+```yaml
+# tasks/code-review.yaml
+lane: claude-reviewer
+metadata:
+  min_effort: high
+prompt_file: ../docs/prompts/code-review.md
+```
+
+```markdown
+<!-- docs/prompts/code-review.md -->
+You are a code reviewer. Read the request file as the artifact under review.
+Respond with:
+- blocking issues (must fix before accept)
+- non-blocking suggestions (apply if reasonable)
+- a one-line verdict
+```
+
+Per-execution paths (the actual request and response files) come from CLI flags at
+submit time, not from the task file. The same task definition can be reused across
+many submissions with different request/response paths.
+
+You can also submit fully inline without a task file:
 
 ```bash
-./handoff/bin/handoff wait --lane claude-review --json
-./handoff/bin/handoff claim <task-id> --owner claude-worker --json
-./handoff/bin/handoff respond <task-id> --claim-token <token> --file response.md --verdict accept --json
-```
-
-## Who Runs What
-
-| Role | Commands |
-| --- | --- |
-| Codex orchestrator | `submit <checkpoint-id>`, then `wait <checkpoint-id>` |
-| Polling monitor | keep `wait --lane <lane> --json` armed; report task JSON; never claim |
-| Claude reviewer | `claim <task-id>`, then `respond <task-id>` |
-
-Checkpoint ids and lanes are different identifiers. Orchestrators use checkpoint ids from
-`handoff.yaml`. Monitors use lane names such as `claude-review`.
-
-`wait --lane`, `watch`, and `next` long-poll by default for six hours and print keepalive messages
-to stderr while waiting. Quiet periods are normal: they mean the reviewer is waiting for the
-orchestrator's next checkpoint. If the command times out, run it again instead of assuming the queue
-is broken.
-
-When a lightweight/background agent is available, use it for the lane wait instead of the main
-reviewer chat. A low-cost/basic, Haiku-class model is enough. The polling monitor runs only
-`wait --lane <lane> --json`, reports returned task JSON, and keeps the lane armed until the operator
-tells it to stop. The main reviewer chat then claims and reviews each task. This keeps keepalive and
-idle messages out of the review context and avoids starting a lease before the reviewer is ready.
-
-Some agent shells have a shorter foreground timeout than the six-hour handoff wait. In that case,
-run the lane wait through the shell's background or monitor mechanism. If the monitor can safely
-stay quiet until final JSON, add `--quiet` to suppress keepalive output:
-
-```bash
-./handoff/bin/handoff wait --lane claude-review --json --quiet
-```
-
-To inspect without claiming:
-
-```bash
-./handoff/bin/handoff list --lane claude-review --json
-./handoff/bin/handoff status --rack --json
-```
-
-Use `status --rack --json` as the first diagnostic command. It summarizes queued, claimed,
-completed, failed, missing-response, and stale-lease tasks and includes next-action guidance.
-
-If a review is taking longer than expected:
-
-```bash
-./handoff/bin/handoff renew <task-id> --claim-token <token>
-```
-
-Run the local server:
-
-```bash
-python3 -m agent_handoff serve --config handoff/handoff.yaml
-```
-
-## Two Agents In Side-By-Side Chats
-
-In v1, the normal workflow does not require a long-running server. Both chats use the same
-pack-local `handoff/handoff.yaml` and the same `handoff/state/` directory on disk.
-
-Agent A, for example Codex, works in the prompt pack folder and submits the checkpoint:
-
-```bash
-cd <prompt-pack>
-./handoff/bin/handoff submit phase-01-review
-./handoff/bin/handoff wait phase-01-review
-```
-
-The `wait` command blocks until a response exists, then writes the configured `response_to` file
-from `handoff.yaml`, usually under `outputs/`.
-
-After submitting a checkpoint or sending an operator message, do not stop. Schedule the next
-`wait <checkpoint-id>` after a short optimistic delay based on how long the other side is likely to
-take. For a quick review, that may be seconds; for a deeper review, use a longer delay. The delay is
-only to avoid noisy immediate polling, not to turn the handoff into a one-shot.
-
-Preferred Agent B setup has two roles:
-
-- a lightweight polling monitor that keeps the lane wait armed and reports task JSON
-- the main Claude reviewer that claims and reviews only after a task is available
-
-The polling monitor works from the same prompt pack folder or any shell that can see the same files:
-
-```bash
-cd <prompt-pack>
-./handoff/bin/handoff wait --lane claude-review --json
-```
-
-When the monitor returns task JSON, send it to the main Claude reviewer. The reviewer then runs:
-
-```bash
-cd <prompt-pack>
-./handoff/bin/handoff claim <task-id> --owner claude-chat --json
-./handoff/bin/handoff respond <task-id> --claim-token <token> --file /path/to/review.md --verdict accept --expect-sha256 <request_sha256> --json
-```
-
-If there is no separate lightweight/background agent, the main Claude reviewer may run
-`wait --lane` directly as a fallback.
-
-After a reviewer responds or a monitor reports task JSON, do not let the lane go cold. Schedule the
-next `wait --lane claude-review --json` after a short optimistic delay based on how long the other
-side will likely take to claim, respond, or submit the next checkpoint. Keep doing that until the
-operator says to stop.
-
-Both agents are "hooked up" by pointing at the same config and state folder:
-
-```text
-<prompt-pack>/handoff/handoff.yaml
-<prompt-pack>/handoff/state/
-```
-
-If the prompt pack is outside the private repo, both chats should use the same runtime path:
-
-```bash
-export AGENT_HANDOFF_RUNTIME=/absolute/path/to/product/_operational/agent-handoff
-```
-
-The local HTTP server is available for future workers or curl-based integrations, but the current
-CLI commands operate directly on the file-backed store. Starting `serve` does not automatically make
-the CLI use HTTP.
-
-For HTTP workers, use long-poll parameters instead of tight polling:
-
-```text
-GET /tasks/next?lane=claude-review&wait_seconds=21600
-GET /tasks/<task-id>/response?wait_seconds=21600
-```
-
-If the endpoint returns without a task after the timeout, the worker should call it again.
-
-## Response Metadata
-
-`respond --file` copies the file contents into the task's `response.json`. It does not move the
-file. Use a task-specific temp path such as `/tmp/claude-handoff-review-<task-id>.md`, or use
-`--file -` to read the response body from stdin. The waiting orchestrator later writes that response
-body to the checkpoint's configured `response_to` path.
-
-Use structured metadata when possible:
-
-```bash
-./handoff/bin/handoff respond <task-id> \
-  --claim-token <token> \
-  --reviewer claude-chat \
-  --file /tmp/claude-handoff-review-<task-id>.md \
-  --verdict needs-revision \
-  --blocking-count 2 \
-  --nonblocking-count 1 \
-  --expect-sha256 <request_sha256> \
+./handoff/bin/handoff submit \
+  --lane claude-reviewer \
+  --request-from outputs/01-step-output.md \
+  --response-to outputs/01-step-review.md \
+  --prompt "Review for missing evidence." \
+  --metadata min_effort=high \
   --json
 ```
 
-Allowed verdicts:
+## Common patterns
 
-- `accept`
-- `accept-with-follow-ups`
-- `needs-revision`
+agent-lanes is structured RPC; review is one application. Four common shapes:
 
-`accept-with-follow-ups` and non-blocking feedback still require active handling by the
-orchestrator. Apply every suggestion that makes sense within scope. Defer or skip a suggestion only
-with a concrete reason recorded in the next output or final response.
+**Review / checkpoint.** An orchestrator submits an artifact and waits for a verdict
+(`accept`, `accept-with-follow-ups`, `needs-revision`). The reviewer claims, reads
+the request, and responds with `--verdict`. This is the original use case.
 
-`respond --json` prints structured confirmation including task id, verdict, response path, queue
-depth, and next-action guidance.
+**Q&A.** A primary agent has a question for a specialist (e.g. a domain expert
+agent). Submit with no verdict expectation, wait for the response, integrate the
+answer. The specialist's lane carries the routing decision.
 
-`claim` verifies the request file still matches the task's `request_sha256`. If the file changed
-after submission, claim fails so the reviewer does not review stale input. `respond` verifies the
-request hash again before accepting a completed response. Use `--expect-sha256 <request_sha256>` to
-pin the revision the reviewer actually reviewed.
+**Delegation.** A parent task fans out to N children on different lanes (or the same
+lane), each handling one subtask. The parent submits all children, then waits on each
+in sequence (or in any order). Useful for parallel reviewers, parallel summarization,
+or any embarrassingly-parallel work.
 
-Checkpoints may define `supporting_paths` for meta-reviews or multi-artifact reviews:
+**Pipeline.** Each agent's response feeds the next one's request. Stage 1 outputs
+go into stage 2's request file; stage 2 outputs into stage 3's. Threading metadata
+(`thread_id`, `parent_task_id`) lets dispatchers reconstruct conversational
+continuity across iterations.
 
-```yaml
-supporting_paths:
-  - ../outputs/00-context.md
-  - ../outputs/01-previous-step.md
-```
+## Orchestrator-side usage
 
-Tasks store each supporting path with its SHA-256 so reviewers can audit secondary context as well
-as the primary `request_path`.
-
-## What A Scaffolding Agent Should Give The Operator
-
-When an agent creates a new prompt pack that uses handoff, it should do two things:
-
-1. Copy the pack-local template into `<prompt-pack>/handoff/` and edit `handoff/handoff.yaml`.
-2. Give the operator the exact prompts to paste into the polling monitor and Claude-side reviewer
-   chats.
-
-The copied template includes:
+Paste this into the CLI agent that drives the queue:
 
 ```text
-handoff/CLAUDE-REVIEWER-PROMPT.md
-handoff/POLLING-MONITOR-PROMPT.md
+You have access to an agent-lanes engine at ./handoff/. Use it to coordinate with
+other agents.
+
+To submit a task:
+
+  ./handoff/bin/handoff submit \
+    --task tasks/<id>.yaml \
+    --request-from <path-to-artifact> \
+    --response-to <path-where-response-should-be-written> \
+    [--metadata key=value ...] \
+    --json
+
+Capture the returned task_id. To wait for the response:
+
+  ./handoff/bin/handoff wait <task-id> --json
+
+For multi-turn iterations, pass thread metadata so a stateless dispatcher can walk
+the parent chain:
+
+  --metadata thread_id=<thread> --metadata parent_task_id=<previous-task-id>
+
+To inspect without claiming:
+
+  ./handoff/bin/handoff list --lane <lane> --json
+  ./handoff/bin/handoff status <task-id> --json
+  ./handoff/bin/handoff status --rack --json
+
+Apply every reviewer suggestion that makes sense in scope, including non-blocking
+ones. Skip a suggestion only with a concrete reason.
 ```
 
-The scaffolding agent should fill in the absolute prompt-pack path and lane, then include the filled
-prompts in its final response. If the operator has a cheap/basic background agent available, use
-`POLLING-MONITOR-PROMPT.md` for that agent and reserve `CLAUDE-REVIEWER-PROMPT.md` for the main
-review chat. This removes ambiguity about how the other chat connects to the same queue without
-clogging the review context with polling output.
+## Language neutrality
 
-## Copying The Template
+The reference implementation is Python (stdlib only; PyYAML optional). The protocol
+itself is language-neutral: state lives on disk as JSON, commands are exposed via a
+CLI and a small HTTP server. TypeScript, Go, and Rust ports are welcome as separate
+packages once the protocol stabilizes.
 
-From this runtime directory:
+## Positioning
 
-```bash
-cp -R agent_handoff/templates/pack-handoff <prompt-pack>/handoff
-chmod +x <prompt-pack>/handoff/bin/handoff
-```
+agent-lanes is local-first and protocol-light. Compared to alternatives:
 
-Then edit `<prompt-pack>/handoff/handoff.yaml` and define checkpoint ids for the pack.
-Always replace the template `pack_id`, checkpoint ids, paths, prompts, and any worktree metadata.
-When creating a pack from an existing pack rather than the clean template, remove copied transient
-state under `handoff/state/` except `.gitignore` and `.gitkeep`.
+- **MCP** is for tool exposure (one agent calling tools). agent-lanes is for agent
+  coordination (one agent calling another agent).
+- **A2A** targets remote agent-to-agent calls over networks with auth and discovery.
+  agent-lanes is the local equivalent: same shape, no network.
+- **agentpost** and similar frameworks bundle orchestration. agent-lanes ships only
+  the queue primitives — your orchestrator stays a few shell commands away.
 
-If the prompt pack lives outside `myelin-private/product`, set `AGENT_HANDOFF_RUNTIME` to this
-runtime directory before using the wrapper.
+## Status
 
-## Tests
+`v0.1` — internal use. Repo private until the wider open-source flip.
 
-From this directory:
+## License
 
-```bash
-python3 -m pytest
-python3 -m agent_handoff --help
-python3 -m agent_handoff self-test
-git diff --check
-```
+MIT. See [LICENSE](LICENSE).
