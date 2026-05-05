@@ -99,6 +99,8 @@ Accepted fields (all optional unless noted):
   to the task file's directory.
 - `request_from` — default request artifact path.
 - `response_to` — default path where the response body should be written.
+- `supporting_paths` — list of additional file paths (inside `workspace_root`)
+  recorded as `[{path, sha256}]` on the task. Task-file-only; no CLI flag.
 - `worktree_path` — optional repository worktree.
 - `branch` — expected branch name.
 

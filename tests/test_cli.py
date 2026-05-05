@@ -364,6 +364,60 @@ prompt: |
     assert task["prompt"].startswith("Default prompt body.")
 
 
+def test_cli_submit_task_file_supporting_paths_flow_through(tmp_path: Path, capsys) -> None:
+    workspace, config_path, config = make_workspace(tmp_path)
+    context_path = workspace / "outputs" / "context.md"
+    prior_path = workspace / "outputs" / "prior.md"
+    context_path.write_text("# Context\n\nUseful background.\n", encoding="utf-8")
+    prior_path.write_text("# Prior\n\nLast review notes.\n", encoding="utf-8")
+
+    task_file = tmp_path / "review-with-context.yaml"
+    task_file.write_text(
+        f"""
+lane: claude-review
+prompt: |
+  Review using context.
+supporting_paths:
+  - {context_path}
+  - {prior_path}
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    request = workspace / "outputs" / "01-step-output.md"
+    response = workspace / "outputs" / "01-step-review.md"
+
+    assert main(
+        [
+            "--config",
+            str(config_path),
+            "submit",
+            "--task",
+            str(task_file),
+            "--request-from",
+            str(request),
+            "--response-to",
+            str(response),
+            "--json",
+        ]
+    ) == 0
+    submitted = json.loads(capsys.readouterr().out)
+    task = submitted["task"]
+
+    supporting = task["supporting_paths"]
+    assert isinstance(supporting, list)
+    assert len(supporting) == 2
+    for record in supporting:
+        assert set(record.keys()) >= {"path", "sha256"}
+        assert isinstance(record["sha256"], str) and len(record["sha256"]) == 64
+    paths = {record["path"] for record in supporting}
+    assert str(context_path.resolve()) in paths
+    assert str(prior_path.resolve()) in paths
+
+    persisted = HandoffStore(config.store_root).get_task(task["id"])
+    assert persisted["supporting_paths"] == supporting
+
+
 def test_cli_submit_task_file_unknown_keys_warn_and_ignore(tmp_path: Path, capsys) -> None:
     workspace, config_path, _ = make_workspace(tmp_path)
     task_file = tmp_path / "with-unknown.yaml"

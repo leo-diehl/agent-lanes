@@ -29,6 +29,7 @@ TASK_FILE_ALLOWED_KEYS = {
     "prompt_file",
     "request_from",
     "response_to",
+    "supporting_paths",
     "worktree_path",
     "branch",
 }

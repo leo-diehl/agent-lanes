@@ -306,7 +306,7 @@ def _cmd_submit(args: argparse.Namespace, config: RuntimeConfig, store: HandoffS
     metadata: dict[str, object] = {}
     if args.task_path:
         task_data = load_task_file(args.task_path)
-        for key in ("lane", "prompt", "prompt_file", "request_from", "response_to", "worktree_path", "branch"):
+        for key in ("lane", "prompt", "prompt_file", "request_from", "response_to", "supporting_paths", "worktree_path", "branch"):
             if task_data.get(key) is not None:
                 fields[key] = task_data[key]
         if isinstance(task_data.get("metadata"), dict):
@@ -379,6 +379,7 @@ def _cmd_submit(args: argparse.Namespace, config: RuntimeConfig, store: HandoffS
         request_path=str(request_from),
         response_path=str(response_to),
         prompt=prompt_body,
+        supporting_paths=fields.get("supporting_paths") or [],
         metadata=metadata,
     )
     _print({"task_id": task["id"], "task": task}, args.json)
