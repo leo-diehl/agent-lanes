@@ -9,129 +9,102 @@ agent submit a task and another claim, work, and respond — over a shared files
 queue, no daemon required. Cross-vendor by design: any agent that can run shell
 commands can participate.
 
-## Architecture
-
-The engine (the `handoff/` folder) is project-level infrastructure. It contains
-workspace metadata, lane definitions, the dispatcher script, the CLI wrapper, and
-runtime state. It does **not** contain task definitions. Tasks are separate YAML files
-that you keep wherever your project organizes them (commonly a `tasks/` folder). The
-engine routes tasks by lane; tasks reference lanes by name. The orchestrator submits
-either by pointing at a task file (`--task path/to/task.yaml`) or by specifying every
-field inline.
-
 ## Install
 
 ```bash
+# From PyPI (once published)
+pip install agent-lanes
+
+# From GitHub
+pip install git+https://github.com/leo-diehl/agent-lanes.git
+
+# From source (for development)
+git clone https://github.com/leo-diehl/agent-lanes.git
+cd agent-lanes
 pip install -e .
 ```
 
-This installs the `agent-lanes` console script and makes `agent_lanes` importable.
+Requires Python 3.11+ on macOS or Linux. POSIX-only — Windows users should run via
+WSL2.
 
 ## Quickstart
 
-End-to-end in four steps. Run from the project root.
-
-1. Scaffold the engine:
-
-   ```bash
-   agent-lanes init
-   ```
-
-   This creates `handoff/` with engine config, dispatcher script, CLI wrapper, and
-   prompt templates. It does not create a `tasks/` folder; that is yours to organize.
-
-2. Define your first task (see "Define your first task" below).
-
-3. Start a dispatcher in one terminal:
-
-   ```bash
-   bash handoff/dispatcher.sh
-   ```
-
-   The dispatcher long-polls the lane and pipes each arriving task to a fresh
-   headless-agent invocation. While idle it consumes zero tokens.
-
-4. From an orchestrator chat (or any shell), submit a task:
-
-   ```bash
-   ./handoff/bin/handoff submit \
-     --task tasks/code-review.yaml \
-     --request-from outputs/01-step-output.md \
-     --response-to outputs/01-step-review.md \
-     --json
-   ```
-
-   Then wait for the response:
-
-   ```bash
-   ./handoff/bin/handoff wait <task-id> --json
-   ```
-
-## Quickstart for multi-rack pools
-
-Use a shared queue when one workspace has many racks and you want one dispatcher
-pool to serve all of them.
+Set up a workspace pool, attach a long-running dispatcher chat, submit a task. Five
+commands.
 
 ```bash
+# 1. Scaffold a workspace pool (shared queue + dispatcher artifacts)
 agent-lanes init-pool ~/myworkspace
 ```
 
-This creates:
-
-```text
-~/myworkspace/
-  .agent-lanes-queue/
-    handoff.yaml
-    state/
-    README.md
-  _dispatchers/
-    claude.sh
-    codex.sh
-    POLLING-CHAT-PROMPT.md
-    README.md
-```
-
-Then point each rack at the pool:
+Creates `~/myworkspace/.agent-lanes-queue/` (the shared queue) and
+`~/myworkspace/_dispatchers/` (per-vendor dispatcher wrappers and a polling chat
+prompt).
 
 ```bash
-cd ~/myworkspace/<rack>
+# 2. Scaffold a rack pointed at the pool
+mkdir ~/myworkspace/example-rack && cd ~/myworkspace/example-rack
 agent-lanes init --queue-root ~/myworkspace/.agent-lanes-queue/state
 mkdir tasks
 ```
 
-Write `tasks/<id>.yaml` with lane `default` and routing metadata
-(`required_vendor`, `model_class`, `effort`), then submit from any rack's
-orchestrator:
+3. **Attach a dispatcher.** Open a Claude Code or Codex chat, paste
+   `~/myworkspace/_dispatchers/POLLING-CHAT-PROMPT.md` into it, fill in the vendor
+   identity (one line at the top), and send. The chat is now a long-running
+   dispatcher — it polls the shared queue, claims tasks whose `required_vendor`
+   matches its vendor, spawns a sub-agent at the requested model and effort,
+   captures the result, and responds. Idle costs zero tokens (it's a blocking
+   syscall).
 
-```bash
-./handoff/bin/handoff submit --task tasks/<id>.yaml --json
+```yaml
+# 4. Define a task: tasks/code-review.yaml
+lane: default
+metadata:
+  required_vendor: claude
+  model_class: sonnet
+  effort: high
+prompt: |
+  Review the request file. Return blocking issues, non-blocking suggestions,
+  and a one-line verdict.
 ```
 
-The queue has two consumer modes:
-
-**Mode A - chat-as-dispatcher (recommended for subscription billing).** Open a
-Claude Code or Codex chat, paste `_dispatchers/POLLING-CHAT-PROMPT.md`, fill in
-the vendor identity, and send it. The chat polls and routes per task. No
-headless CLI agent is invoked by agent-lanes while idle.
-
-**Mode B - bash dispatcher (for headless CLI use).** Run a wrapper in any
-terminal:
-
 ```bash
-bash ~/myworkspace/_dispatchers/claude.sh
-bash ~/myworkspace/_dispatchers/codex.sh
+# 5. Submit and wait
+TASK_ID=$(./handoff/bin/handoff submit \
+  --task tasks/code-review.yaml \
+  --request-from outputs/01-step.md \
+  --response-to outputs/01-review.md \
+  --json | jq -r .task_id)
+./handoff/bin/handoff wait "$TASK_ID"
 ```
 
-The bash dispatcher calls a fresh headless agent for each claimed task. Depending
-on your CLI setup, that may use per-token API billing.
+The polling chat picks up the task, the sub-agent does the review, the response
+lands in `outputs/01-review.md`, and the wait unblocks.
 
-Both modes consume the same queue. You can mix and match them. The canonical
-metadata vocabulary is in `CONTRACT.md` section 14. Vendor-routed dispatcher
-behavior is in section 16, and the shared-queue topology is in section 17.
+**Mode A (chat-as-dispatcher) is the recommended consumer** because it uses your
+chat subscription rather than per-token API billing. The polling chat is
+vendor-bound only; model and effort come from each task's metadata, so the same
+chat handles tasks at any model/effort the queue receives.
+
+### Alternative: Mode B (bash dispatcher)
+
+For headless CLI environments where per-token API billing is acceptable, run the
+bundled bash wrappers in any terminal:
+
+```bash
+bash ~/myworkspace/_dispatchers/claude.sh   # one terminal
+bash ~/myworkspace/_dispatchers/codex.sh    # another terminal
+```
+
+Each wrapper long-polls the queue, claims tasks for its vendor, and spawns a fresh
+headless agent (`claude -p` / `codex exec`) per task. Both modes consume the same
+queue and can run simultaneously.
 
 ## Try it
 
-The `examples/two-terminal/` directory has a 30-second demo: one terminal long-polls a lane and responds; another submits a task and reads the response. No LLM calls, just proof that the claim/respond loop works against a real queue.
+The `examples/two-terminal/` directory has a 30-second demo: one shell submits a
+task, another claims and responds. No LLM is involved — pure shell — but it
+exercises the full submit / wait / claim / respond cycle.
 
 ```bash
 cd examples/two-terminal
@@ -140,10 +113,35 @@ bash agent-a.sh
 wait
 ```
 
+## Architecture
+
+The engine (the `handoff/` folder) is project-level infrastructure: workspace
+metadata, lane definitions, the dispatcher script, the CLI wrapper, runtime state.
+It does **not** contain task definitions. Tasks are separate YAML files that you
+keep wherever your project organizes them (commonly a `tasks/` folder). The engine
+routes tasks by lane; tasks reference lanes by name.
+
+Two scaffolding shapes:
+
+- **`agent-lanes init`** scaffolds a single rack with its own per-rack queue at
+  `handoff/state/`. Use this for one-off projects.
+- **`agent-lanes init-pool <workspace>`** scaffolds a workspace-level shared queue
+  plus per-vendor dispatcher artifacts. Use this when one workspace has many racks
+  that should share a single dispatcher pool. Each rack then runs
+  `agent-lanes init --queue-root <abs-path-to-shared-state>` to point at the
+  shared queue instead of creating its own.
+
+Routing is metadata-driven. Every dispatcher (Mode A or Mode B) is bound only to
+a vendor (`claude` or `codex`). Each task carries metadata declaring
+`required_vendor`, `model_class`, and `effort`. Dispatchers inspect metadata, skip
+tasks not for them, claim matching ones, and spawn (or delegate to a sub-agent)
+the actual work at the requested model and effort. The dispatcher is a router;
+the work happens in the spawned agent.
+
 ## Define your first task
 
 A task is a small standalone YAML file. It declares which lane to route to, any
-default metadata, and the prompt body (inline or via a file).
+default metadata, and the prompt body (inline or via `prompt_file`).
 
 ```yaml
 # tasks/code-review.yaml
@@ -158,10 +156,7 @@ prompt_file: ../docs/prompts/code-review.md
 ```markdown
 <!-- docs/prompts/code-review.md -->
 You are a code reviewer. Read the request file as the artifact under review.
-Respond with:
-- blocking issues (must fix before accept)
-- non-blocking suggestions (apply if reasonable)
-- a one-line verdict
+Respond with blocking issues, non-blocking suggestions, and a one-line verdict.
 ```
 
 Per-execution paths (the actual request and response files) come from CLI flags at
@@ -173,8 +168,8 @@ You can also submit fully inline without a task file:
 ```bash
 ./handoff/bin/handoff submit \
   --lane default \
-  --request-from outputs/01-step-output.md \
-  --response-to outputs/01-step-review.md \
+  --request-from outputs/01-step.md \
+  --response-to outputs/01-review.md \
   --prompt "Review for missing evidence." \
   --metadata required_vendor=claude \
   --metadata model_class=sonnet \
@@ -182,43 +177,28 @@ You can also submit fully inline without a task file:
   --json
 ```
 
-For a single project, `agent-lanes init` scaffolds a rack-local queue. For a
-workspace with many racks, run `agent-lanes init-pool <workspace>` once, then
-scaffold each rack with `agent-lanes init --queue-root
-<workspace>/.agent-lanes-queue/state`.
-
 ## Common patterns
 
 agent-lanes is structured RPC; review is one application. Five common shapes:
 
-**Review / checkpoint.** An orchestrator submits an artifact and waits for a verdict
-(`accept`, `accept-with-follow-ups`, `needs-revision`). The reviewer claims, reads
-the request, and responds with `--verdict`. This is the original use case.
+**Review / checkpoint.** An orchestrator submits an artifact and waits for a
+verdict (`accept`, `accept-with-follow-ups`, `needs-revision`). The reviewer
+claims, reads the request, and responds with `--verdict`. The original use case.
 
-**Q&A.** A primary agent has a question for a specialist (e.g. a domain expert
-agent). Submit with no verdict expectation, wait for the response, integrate the
-answer. The specialist's lane carries the routing decision.
+**Q&A.** A primary agent has a question for a specialist. Submit with no verdict
+expectation, wait for the response, integrate the answer.
 
-**Delegation.** A parent task fans out to N children on different lanes (or the same
-lane), each handling one subtask. The parent submits all children, then waits on each
-in sequence (or in any order). Useful for parallel reviewers, parallel summarization,
-or any embarrassingly-parallel work.
+**Delegation.** A parent task fans out to N children on different lanes (or the
+same lane), each handling one subtask. The parent submits all children, then waits
+on each. Useful for parallel reviewers or any embarrassingly-parallel work.
 
-**Pipeline.** Each agent's response feeds the next one's request. Stage 1 outputs
-go into stage 2's request file; stage 2 outputs into stage 3's. Threading metadata
-(`thread_id`, `parent_task_id`) lets dispatchers reconstruct conversational
-continuity across iterations.
+**Pipeline.** Each agent's response feeds the next one's request. Threading
+metadata (`thread_id`, `parent_task_id`) lets dispatchers reconstruct
+conversational continuity across iterations.
 
-**Vendor-routed pool.** One workspace, many racks, one queue. Run
-`agent-lanes init-pool <workspace>` to create the shared queue and dispatcher
-artifacts. Consumers can be Mode A polling chats or Mode B bash dispatchers; both
-subscribe to the queue's `default` lane.
-
-Each dispatcher is bound only to a vendor. The model and effort come from each
-task's metadata: `required_vendor`, `model_class`, and `effort`. Dispatchers
-inspect metadata, skip if they are not a match, claim if matching, and spawn or
-delegate the actual work. See `CONTRACT.md` section 14 for canonical metadata
-values.
+**Vendor-routed pool.** One workspace, many racks, one queue. Mode A and Mode B
+dispatchers are interchangeable consumers; both subscribe to the queue's `default`
+lane and route per task metadata.
 
 ## Orchestrator-side usage
 
@@ -256,11 +236,18 @@ Apply every reviewer suggestion that makes sense in scope, including non-blockin
 ones. Skip a suggestion only with a concrete reason.
 ```
 
+## Reference
+
+- [`CONTRACT.md`](CONTRACT.md) — protocol contract: state machine, JSON shapes,
+  CLI surface, HTTP routes, metadata convention (§ 14), dispatcher pattern (§ 16),
+  shared-queue topology (§ 17).
+- [`CHANGELOG.md`](CHANGELOG.md) — release notes.
+
 ## Language neutrality
 
-The reference implementation is Python (stdlib only; PyYAML optional). The protocol
-itself is language-neutral: state lives on disk as JSON, commands are exposed via a
-CLI and a small HTTP server. TypeScript, Go, and Rust ports are welcome as separate
+The reference implementation is Python (stdlib + PyYAML). The protocol itself is
+language-neutral: state lives on disk as JSON, commands are exposed via a CLI and
+a small HTTP server. TypeScript, Go, and Rust ports are welcome as separate
 packages once the protocol stabilizes.
 
 ## Positioning
@@ -269,14 +256,10 @@ agent-lanes is local-first and protocol-light. Compared to alternatives:
 
 - **MCP** is for tool exposure (one agent calling tools). agent-lanes is for agent
   coordination (one agent calling another agent).
-- **A2A** targets remote agent-to-agent calls over networks with auth and discovery.
-  agent-lanes is the local equivalent: same shape, no network.
-- **agentpost** and similar frameworks bundle orchestration. agent-lanes ships only
-  the queue primitives — your orchestrator stays a few shell commands away.
-
-## Platform support
-
-POSIX-only: macOS and Linux. The store uses `fcntl.flock` for inter-process locking, so Windows is unsupported; Windows users should run via WSL2.
+- **A2A** targets remote agent-to-agent calls over networks with auth and
+  discovery. agent-lanes is the local equivalent: same shape, no network.
+- **agentpost** and similar frameworks bundle orchestration. agent-lanes ships
+  only the queue primitives — your orchestrator stays a few shell commands away.
 
 ## Status
 
