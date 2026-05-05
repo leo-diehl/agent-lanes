@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG="${SCRIPT_DIR}/../handoff.yaml"
+PYTHON_BIN="${PYTHON:-}"
+
+if [ -z "${PYTHON_BIN}" ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+  else
+    echo "python3 or python is required for agent-lanes." >&2
+    exit 1
+  fi
+fi
+
+RUNTIME="${AGENT_LANES_RUNTIME:-}"
+if [ -n "${RUNTIME}" ] && [ ! -d "${RUNTIME}/agent_lanes" ]; then
+  echo "AGENT_LANES_RUNTIME does not contain agent_lanes: ${RUNTIME}" >&2
+  exit 1
+fi
+
+if [ -z "${RUNTIME}" ] && "${PYTHON_BIN}" -c 'import agent_lanes' >/dev/null 2>&1; then
+  exec "${PYTHON_BIN}" -m agent_lanes --config "${CONFIG}" "$@"
+fi
+
+if [ -z "${RUNTIME}" ]; then
+  echo "agent_lanes runtime not found. Either pip install agent-lanes, or set AGENT_LANES_RUNTIME to a checkout." >&2
+  exit 1
+fi
+
+export PYTHONPATH="${RUNTIME}${PYTHONPATH:+:${PYTHONPATH}}"
+exec "${PYTHON_BIN}" -m agent_lanes --config "${CONFIG}" "$@"

@@ -1,0 +1,13 @@
+pack_id: example-pack
+pack_root: ..
+queue_root: state
+checkpoints:
+  phase-01-review:
+    lane: claude-review
+    request_from: ../outputs/01-step-output.md
+    supporting_paths: []
+    response_to: ../outputs/01-step-review.md
+    required: true
+    prompt: |
+      Review this step output for unsupported claims, missing evidence, contradictions, and
+      follow-up questions that block the next prompt-pack step.
