@@ -358,12 +358,28 @@ routing intent: vendor, model class, and effort. The dispatcher does not have it
 own model or effort policy beyond resolving the task metadata to vendor-specific
 flags.
 
+The dispatcher concept covers both polling chats that spawn sub-agents and bash
+dispatchers that spawn headless CLI agents. Both follow the same vendor-routed,
+metadata-driven pattern.
+
 ## 17. Shared-queue topology (workspace-level pools)
 
 A workspace-level pool uses one queue for many projects or racks. The shared queue
 has its own engine config, such as `~/workspace/.agent-lanes-queue/handoff.yaml`,
 and queue state directory, such as `~/workspace/.agent-lanes-queue/state/`. Each
 rack's `handoff/handoff.yaml` sets `queue_root` to that shared state path.
+
+Use `agent-lanes init-pool <workspace>` to scaffold the shared queue and
+dispatcher artifacts:
+
+```bash
+agent-lanes init-pool ~/workspace
+```
+
+This creates `~/workspace/.agent-lanes-queue/` plus
+`~/workspace/_dispatchers/`. The dispatchers folder contains bash wrappers and a
+polling chat prompt. The bash dispatcher and the polling chat prompt are
+alternative consumers of the same queue and can run at the same time.
 
 Use `agent-lanes init --queue-root <path>` to scaffold a rack already pointed at a
 shared queue:

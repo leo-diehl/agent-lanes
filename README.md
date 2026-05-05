@@ -69,36 +69,61 @@ Use a shared queue when one workspace has many racks and you want one dispatcher
 pool to serve all of them.
 
 ```bash
-# One-time workspace setup
-mkdir -p ~/workspace/.agent-lanes-queue/state
-cat > ~/workspace/.agent-lanes-queue/handoff.yaml <<'YAML'
-workspace_id: my-workspace
-workspace_root: ..
-queue_root: state
-lanes:
-  default:
-    description: Shared lane; routing via task metadata
-YAML
+agent-lanes init-pool ~/myworkspace
+```
 
-# Per-rack setup
-cd ~/workspace/<rack>
-agent-lanes init --queue-root ~/workspace/.agent-lanes-queue/state
+This creates:
+
+```text
+~/myworkspace/
+  .agent-lanes-queue/
+    handoff.yaml
+    state/
+    README.md
+  _dispatchers/
+    claude.sh
+    codex.sh
+    POLLING-CHAT-PROMPT.md
+    README.md
+```
+
+Then point each rack at the pool:
+
+```bash
+cd ~/myworkspace/<rack>
+agent-lanes init --queue-root ~/myworkspace/.agent-lanes-queue/state
 mkdir tasks
-# write tasks/<id>.yaml with metadata.required_vendor / model_class / effort
+```
 
-# Run dispatchers (one per vendor, from a directory containing dispatcher.sh)
-VENDOR=claude QUEUE_ROOT=~/workspace/.agent-lanes-queue/state bash dispatcher.sh
-VENDOR=codex  QUEUE_ROOT=~/workspace/.agent-lanes-queue/state bash dispatcher.sh
+Write `tasks/<id>.yaml` with lane `default` and routing metadata
+(`required_vendor`, `model_class`, `effort`), then submit from any rack's
+orchestrator:
 
-# Submit from any rack's orchestrator
+```bash
 ./handoff/bin/handoff submit --task tasks/<id>.yaml --json
 ```
 
-In a scaffolded rack, the dispatcher script lives at `handoff/dispatcher.sh`; the
-source template lives at `agent_lanes/templates/workspace/dispatcher.sh`. The
-canonical metadata vocabulary is in `CONTRACT.md` section 14. Vendor-routed
-dispatcher behavior is in section 16, and the shared-queue topology is in section
-17.
+The queue has two consumer modes:
+
+**Mode A - chat-as-dispatcher (recommended for subscription billing).** Open a
+Claude Code or Codex chat, paste `_dispatchers/POLLING-CHAT-PROMPT.md`, fill in
+the vendor identity, and send it. The chat polls and routes per task. No
+headless CLI agent is invoked by agent-lanes while idle.
+
+**Mode B - bash dispatcher (for headless CLI use).** Run a wrapper in any
+terminal:
+
+```bash
+bash ~/myworkspace/_dispatchers/claude.sh
+bash ~/myworkspace/_dispatchers/codex.sh
+```
+
+The bash dispatcher calls a fresh headless agent for each claimed task. Depending
+on your CLI setup, that may use per-token API billing.
+
+Both modes consume the same queue. You can mix and match them. The canonical
+metadata vocabulary is in `CONTRACT.md` section 14. Vendor-routed dispatcher
+behavior is in section 16, and the shared-queue topology is in section 17.
 
 ## Define your first task
 
@@ -107,8 +132,10 @@ default metadata, and the prompt body (inline or via a file).
 
 ```yaml
 # tasks/code-review.yaml
-lane: claude-reviewer
+lane: default
 metadata:
+  required_vendor: claude
+  model_class: sonnet
   effort: high
 prompt_file: ../docs/prompts/code-review.md
 ```
@@ -130,13 +157,20 @@ You can also submit fully inline without a task file:
 
 ```bash
 ./handoff/bin/handoff submit \
-  --lane claude-reviewer \
+  --lane default \
   --request-from outputs/01-step-output.md \
   --response-to outputs/01-step-review.md \
   --prompt "Review for missing evidence." \
+  --metadata required_vendor=claude \
+  --metadata model_class=sonnet \
   --metadata effort=high \
   --json
 ```
+
+For a single project, `agent-lanes init` scaffolds a rack-local queue. For a
+workspace with many racks, run `agent-lanes init-pool <workspace>` once, then
+scaffold each rack with `agent-lanes init --queue-root
+<workspace>/.agent-lanes-queue/state`.
 
 ## Common patterns
 
@@ -160,16 +194,16 @@ go into stage 2's request file; stage 2 outputs into stage 3's. Threading metada
 (`thread_id`, `parent_task_id`) lets dispatchers reconstruct conversational
 continuity across iterations.
 
-**Vendor-routed pool.** One project, many racks, one queue. A pool of long-running
-dispatchers, one per vendor on this machine, subscribes to the queue's default
-lane. Each task carries metadata declaring which vendor must handle it
-(`required_vendor`), which model class to spawn (`model_class`), and what reasoning
-effort to request (`effort`). See `CONTRACT.md` section 14 for the canonical
-metadata values.
+**Vendor-routed pool.** One workspace, many racks, one queue. Run
+`agent-lanes init-pool <workspace>` to create the shared queue and dispatcher
+artifacts. Consumers can be Mode A polling chats or Mode B bash dispatchers; both
+subscribe to the queue's `default` lane.
 
-Dispatchers inspect metadata, skip if they are not a match, claim if matching, and
-spawn a fresh headless agent with the resolved flags. The orchestrator is the only
-chat the operator opens per rack; dispatchers are infrastructure.
+Each dispatcher is bound only to a vendor. The model and effort come from each
+task's metadata: `required_vendor`, `model_class`, and `effort`. Dispatchers
+inspect metadata, skip if they are not a match, claim if matching, and spawn or
+delegate the actual work. See `CONTRACT.md` section 14 for canonical metadata
+values.
 
 ## Orchestrator-side usage
 
