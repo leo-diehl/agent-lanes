@@ -1,0 +1,6 @@
+workspace_id: {{WORKSPACE_ID}}
+workspace_root: ..
+queue_root: state
+lanes:
+  default:
+    description: Shared lane for all agent tasks. Routing handled via task metadata (required_vendor, model_class, effort).

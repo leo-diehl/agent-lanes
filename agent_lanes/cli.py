@@ -27,6 +27,9 @@ from .store import HandoffStore
 INIT_PLACEHOLDER_WORKSPACE_ID = "{{WORKSPACE_ID}}"
 INIT_PLACEHOLDER_WORKSPACE_ROOT = "{{WORKSPACE_ROOT}}"
 INIT_PLACEHOLDER_QUEUE_ROOT = "{{QUEUE_ROOT}}"
+INIT_PLACEHOLDER_CONFIG_PATH = "{{CONFIG_PATH}}"
+INIT_PLACEHOLDER_STORE_PATH = "{{STORE_PATH}}"
+INIT_PLACEHOLDER_DISPATCHER_TEMPLATE = "{{DISPATCHER_TEMPLATE}}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -38,6 +41,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "init":
             return _cmd_init(args)
+        if args.command == "init-pool":
+            return _cmd_init_pool(args)
         if args.command is None:
             parser.print_help()
             return 0
@@ -160,6 +165,15 @@ def build_parser() -> argparse.ArgumentParser:
         default="state",
         help="queue root recorded in handoff.yaml; absolute or relative path is preserved verbatim (default: state)",
     )
+
+    # init-pool --------------------------------------------------------
+    init_pool_cmd = sub.add_parser(
+        "init-pool",
+        parents=[common_output],
+        help="scaffold a workspace-level shared queue and dispatcher wrappers",
+    )
+    init_pool_cmd.add_argument("path", help="workspace root for the pool scaffold")
+    init_pool_cmd.add_argument("--workspace-id", default=None, help="workspace id (default: path basename)")
 
     # submit -----------------------------------------------------------
     submit = sub.add_parser(
@@ -501,9 +515,98 @@ def _cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_init_pool(args: argparse.Namespace) -> int:
+    target_root = Path(args.path).expanduser().resolve()
+    target_root.mkdir(parents=True, exist_ok=True)
+    queue_dir = target_root / ".agent-lanes-queue"
+    dispatchers_dir = target_root / "_dispatchers"
+    if queue_dir.exists():
+        raise HandoffError(f".agent-lanes-queue/ already exists: {queue_dir}")
+    if dispatchers_dir.exists():
+        raise HandoffError(f"_dispatchers/ already exists: {dispatchers_dir}")
+
+    workspace_id = args.workspace_id or target_root.name or "workspace"
+    config_path = queue_dir / "handoff.yaml"
+    store_path = queue_dir / "state"
+    dispatcher_template = _workspace_dispatcher_template()
+    if not dispatcher_template.exists():
+        raise HandoffError(f"dispatcher template missing: {dispatcher_template}")
+
+    template_root = _pool_template_root()
+    if not template_root.exists():
+        raise HandoffError(f"pool template missing: {template_root}")
+
+    replacements = {
+        INIT_PLACEHOLDER_WORKSPACE_ID: workspace_id,
+        INIT_PLACEHOLDER_CONFIG_PATH: str(config_path),
+        INIT_PLACEHOLDER_STORE_PATH: str(store_path),
+        INIT_PLACEHOLDER_DISPATCHER_TEMPLATE: str(dispatcher_template),
+    }
+    for src in template_root.rglob("*"):
+        rel = src.relative_to(template_root)
+        if rel.parts[0] == "dispatchers":
+            dst = dispatchers_dir / Path(*rel.parts[1:])
+        else:
+            dst = queue_dir / rel
+        if src.is_dir():
+            dst.mkdir(parents=True, exist_ok=True)
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            text = src.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            shutil.copyfile(src, dst)
+        else:
+            for placeholder, value in replacements.items():
+                text = text.replace(placeholder, value)
+            dst.write_text(text, encoding="utf-8")
+        src_mode = src.stat().st_mode
+        if src_mode & stat.S_IXUSR:
+            dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    for relative in ("claude.sh", "codex.sh"):
+        candidate = dispatchers_dir / relative
+        if candidate.exists():
+            candidate.chmod(candidate.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    if getattr(args, "json", False):
+        print(
+            json.dumps(
+                {
+                    "status": "initialized",
+                    "workspace_id": workspace_id,
+                    "queue": str(queue_dir),
+                    "config": str(config_path),
+                    "store": str(store_path),
+                    "claude_dispatcher": str(dispatchers_dir / "claude.sh"),
+                    "codex_dispatcher": str(dispatchers_dir / "codex.sh"),
+                    "polling_prompt": str(dispatchers_dir / "POLLING-CHAT-PROMPT.md"),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(f"agent-lanes pool scaffolded for workspace_id: {workspace_id}")
+        print(f"queue: {queue_dir}")
+        print(f"dispatchers: {dispatchers_dir / 'claude.sh'}")
+        print(f"             {dispatchers_dir / 'codex.sh'}")
+        print(f"polling prompt: {dispatchers_dir / 'POLLING-CHAT-PROMPT.md'}")
+        print(f"next: run `bash {dispatchers_dir / 'claude.sh'}` or paste the polling prompt into a chat.")
+    return 0
+
+
 def _template_root() -> Path:
     # Locate templates/workspace inside the package.
     return Path(__file__).resolve().parent / "templates" / "workspace"
+
+
+def _pool_template_root() -> Path:
+    return Path(__file__).resolve().parent / "templates" / "pool"
+
+
+def _workspace_dispatcher_template() -> Path:
+    return Path(__file__).resolve().parent / "templates" / "workspace" / "dispatcher.sh"
 
 
 def _wait_for_lane_task(
