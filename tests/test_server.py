@@ -25,7 +25,7 @@ def get_json(url: str) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
-def test_server_create_next_claim_respond_wait_flow(tmp_path: Path) -> None:
+def _start_server(tmp_path: Path):
     workspace = tmp_path / "workspace"
     outputs = workspace / "outputs"
     outputs.mkdir(parents=True)
@@ -36,6 +36,11 @@ def test_server_create_next_claim_respond_wait_flow(tmp_path: Path) -> None:
     server, thread = start_in_thread(store)
     port = server.server_address[1]
     base = f"http://127.0.0.1:{port}"
+    return store, server, thread, base, workspace, request_path, response_path
+
+
+def test_server_create_next_claim_respond_wait_flow(tmp_path: Path) -> None:
+    store, server, thread, base, workspace, request_path, response_path = _start_server(tmp_path)
 
     try:
         created = post_json(
@@ -48,9 +53,11 @@ def test_server_create_next_claim_respond_wait_flow(tmp_path: Path) -> None:
                 "request_path": str(request_path),
                 "response_path": str(response_path),
                 "prompt": "Review via server.",
+                "metadata": {"min_effort": "high"},
             },
         )["task"]
         task_id = created["id"]
+        assert created["metadata"] == {"min_effort": "high"}
 
         next_task = get_json(f"{base}/tasks/next?lane=claude-review")["task"]
         assert next_task["id"] == task_id
@@ -64,6 +71,7 @@ def test_server_create_next_claim_respond_wait_flow(tmp_path: Path) -> None:
                 "claim_token": claimed["claim_token"],
                 "verdict": "accept",
                 "blocking_count": 0,
+                "metadata": {"model_used": "fake"},
             },
         )
         response = get_json(f"{base}/tasks/{task_id}/response")["response"]
@@ -71,7 +79,37 @@ def test_server_create_next_claim_respond_wait_flow(tmp_path: Path) -> None:
         assert response["body"] == "Server review complete.\n"
         assert response["verdict"] == "accept"
         assert response["blocking_count"] == 0
+        assert response["metadata"] == {"model_used": "fake"}
         assert store.get_task(task_id)["state"] == "completed"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_server_release_endpoint_returns_task_to_queued(tmp_path: Path) -> None:
+    store, server, thread, base, workspace, request_path, response_path = _start_server(tmp_path)
+    try:
+        created = post_json(
+            f"{base}/tasks",
+            {
+                "workspace_id": "server-workspace",
+                "checkpoint_id": "release-test",
+                "lane": "claude-review",
+                "workspace_root": str(workspace),
+                "request_path": str(request_path),
+                "response_path": str(response_path),
+                "prompt": "test",
+            },
+        )["task"]
+        task_id = created["id"]
+        claimed = post_json(f"{base}/tasks/{task_id}/claim", {"owner": "server-worker"})["task"]
+
+        released = post_json(
+            f"{base}/tasks/{task_id}/release",
+            {"claim_token": claimed["claim_token"], "reason": "not-a-fit"},
+        )["task"]
+        assert released["state"] == "queued"
+        assert released["claim_token"] is None
     finally:
         server.shutdown()
         thread.join(timeout=5)

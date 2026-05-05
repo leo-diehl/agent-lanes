@@ -1,22 +1,43 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .errors import ConfigError
 
 
+# Engine-config keys are workspace metadata + lanes only. checkpoints: is rejected
+# with a clear error pointing at task files.
+ENGINE_CONFIG_ALLOWED_KEYS = {
+    "workspace_id",
+    "workspace_root",
+    "queue_root",
+    "lanes",
+    # legacy/optional engine hints kept for backward compatibility
+    "worktree_path",
+    "expected_branch",
+}
+
+# Task-file loader accepts these fields. Unknown keys warn and are ignored.
+TASK_FILE_ALLOWED_KEYS = {
+    "lane",
+    "metadata",
+    "prompt",
+    "prompt_file",
+    "request_from",
+    "response_to",
+    "worktree_path",
+    "branch",
+}
+
+
 @dataclass(frozen=True)
-class CheckpointConfig:
-    id: str
-    lane: str
-    request_from: Path
-    response_to: Path
-    prompt: str
-    required: bool = True
-    supporting_paths: tuple[Path, ...] = ()
+class LaneConfig:
+    name: str
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -28,7 +49,7 @@ class RuntimeConfig:
     store_root: Path
     worktree_path: Path | None
     expected_branch: str | None
-    checkpoints: dict[str, CheckpointConfig]
+    lanes: dict[str, LaneConfig] = field(default_factory=dict)
 
 
 def load_config(config_path: str | Path, store_override: str | Path | None = None) -> RuntimeConfig:
@@ -38,6 +59,13 @@ def load_config(config_path: str | Path, store_override: str | Path | None = Non
     path = path.resolve()
     data = _load_mapping(path)
     config_dir = path.parent
+
+    if "checkpoints" in data:
+        raise ConfigError(
+            "checkpoints in handoff.yaml are no longer supported. Move task definitions to "
+            "standalone files (e.g. tasks/<id>.yaml) and submit with --task <path>. "
+            "See CONTRACT.md."
+        )
 
     workspace_id = str(data.get("workspace_id") or "").strip()
     if not workspace_id:
@@ -54,32 +82,7 @@ def load_config(config_path: str | Path, store_override: str | Path | None = Non
     worktree_path = _resolve_path(config_dir, worktree_raw).resolve() if worktree_raw else None
     expected_branch = data.get("expected_branch")
 
-    raw_checkpoints = data.get("checkpoints")
-    if not isinstance(raw_checkpoints, dict) or not raw_checkpoints:
-        raise ConfigError("handoff config must define at least one checkpoint")
-
-    checkpoints: dict[str, CheckpointConfig] = {}
-    for checkpoint_id, raw in raw_checkpoints.items():
-        if not isinstance(raw, dict):
-            raise ConfigError(f"checkpoint {checkpoint_id!r} must be a mapping")
-        lane = str(raw.get("lane") or "").strip()
-        if not lane:
-            raise ConfigError(f"checkpoint {checkpoint_id!r} must define lane")
-        request_from = _resolve_path(config_dir, raw.get("request_from")).resolve()
-        response_to = _resolve_path(config_dir, raw.get("response_to")).resolve()
-        _require_inside(workspace_root, request_from, f"{checkpoint_id}.request_from")
-        _require_inside(workspace_root, response_to, f"{checkpoint_id}.response_to")
-        supporting_paths = _supporting_paths(config_dir, workspace_root, checkpoint_id, raw.get("supporting_paths", []))
-        prompt = str(raw.get("prompt") or "").strip()
-        checkpoints[str(checkpoint_id)] = CheckpointConfig(
-            id=str(checkpoint_id),
-            lane=lane,
-            request_from=request_from,
-            response_to=response_to,
-            prompt=prompt,
-            required=bool(raw.get("required", True)),
-            supporting_paths=tuple(supporting_paths),
-        )
+    lanes = _load_lanes(data.get("lanes"))
 
     return RuntimeConfig(
         path=path,
@@ -89,8 +92,65 @@ def load_config(config_path: str | Path, store_override: str | Path | None = Non
         store_root=store_root,
         worktree_path=worktree_path,
         expected_branch=str(expected_branch) if expected_branch else None,
-        checkpoints=checkpoints,
+        lanes=lanes,
     )
+
+
+def load_task_file(task_path: str | Path) -> dict[str, Any]:
+    """Load a standalone task-definition YAML/JSON file.
+
+    Returns a dict containing only the recognized task fields. Unknown keys are
+    logged to stderr and ignored (forward compat).
+    """
+    path = Path(task_path).expanduser()
+    if not path.exists():
+        raise ConfigError(f"task file does not exist: {path}")
+    path = path.resolve()
+    data = _load_mapping(path)
+
+    accepted: dict[str, Any] = {}
+    unknown: list[str] = []
+    for key, value in data.items():
+        if key in TASK_FILE_ALLOWED_KEYS:
+            accepted[key] = value
+        else:
+            unknown.append(key)
+    if unknown:
+        print(
+            f"agent-lanes: warning: task file {path} has unknown keys (ignored): "
+            + ", ".join(sorted(unknown)),
+            file=sys.stderr,
+        )
+
+    # Resolve prompt_file relative to the task file's directory.
+    if "prompt_file" in accepted and accepted["prompt_file"] is not None:
+        prompt_file = Path(str(accepted["prompt_file"])).expanduser()
+        if not prompt_file.is_absolute():
+            prompt_file = path.parent / prompt_file
+        accepted["prompt_file"] = str(prompt_file.resolve())
+
+    metadata = accepted.get("metadata")
+    if metadata is None:
+        accepted["metadata"] = {}
+    elif not isinstance(metadata, dict):
+        raise ConfigError(f"task file {path}: metadata must be a mapping")
+    return accepted
+
+
+def _load_lanes(raw: Any) -> dict[str, LaneConfig]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ConfigError("lanes must be a mapping")
+    lanes: dict[str, LaneConfig] = {}
+    for name, value in raw.items():
+        description = ""
+        if isinstance(value, dict):
+            description = str(value.get("description") or "")
+        elif value is not None:
+            description = str(value)
+        lanes[str(name)] = LaneConfig(name=str(name), description=description)
+    return lanes
 
 
 def _load_mapping(path: Path) -> dict[str, Any]:
@@ -102,9 +162,9 @@ def _load_mapping(path: Path) -> dict[str, Any]:
     except ModuleNotFoundError:
         data = json.loads(raw)
     except Exception as exc:  # pragma: no cover - exact parser errors vary
-        raise ConfigError(f"failed to parse handoff config {path}: {exc}") from exc
+        raise ConfigError(f"failed to parse config {path}: {exc}") from exc
     if not isinstance(data, dict):
-        raise ConfigError("handoff config must parse to a mapping")
+        raise ConfigError("config must parse to a mapping")
     return data
 
 
@@ -115,20 +175,6 @@ def _resolve_path(base: Path, value: Any) -> Path:
     if candidate.is_absolute():
         return candidate
     return base / candidate
-
-
-def _supporting_paths(config_dir: Path, workspace_root: Path, checkpoint_id: object, raw_value: Any) -> list[Path]:
-    if raw_value is None:
-        return []
-    if not isinstance(raw_value, list):
-        raise ConfigError(f"{checkpoint_id}.supporting_paths must be a list")
-    paths: list[Path] = []
-    for index, item in enumerate(raw_value):
-        raw_path = item.get("path") if isinstance(item, dict) else item
-        path = _resolve_path(config_dir, raw_path).resolve()
-        _require_inside(workspace_root, path, f"{checkpoint_id}.supporting_paths[{index}]")
-        paths.append(path)
-    return paths
 
 
 def _require_inside(root: Path, candidate: Path, label: str) -> None:

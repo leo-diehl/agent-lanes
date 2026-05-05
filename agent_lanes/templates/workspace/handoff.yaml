@@ -1,13 +1,28 @@
-workspace_id: example-workspace
-workspace_root: ..
+# agent-lanes engine configuration.
+# This file describes WHAT this workspace's engine looks like (workspace metadata,
+# lanes, queue location). It does NOT contain task definitions.
+#
+# Task definitions are separate YAML files that you create wherever your project
+# organizes them (a common convention is `tasks/` at the project root). To submit
+# a task, run:
+#
+#     ./handoff/bin/handoff submit --task tasks/<your-task>.yaml \
+#       --request-from <path> --response-to <path>
+#
+# Or fully inline without a task file. See the agent-lanes README for examples.
+#
+# This file should rarely change. Add a lane when you introduce a new capability
+# tier; otherwise it is set-and-forget.
+
+workspace_id: {{WORKSPACE_ID}}
+workspace_root: {{WORKSPACE_ROOT}}
 queue_root: state
-checkpoints:
-  phase-01-review:
-    lane: claude-review
-    request_from: ../outputs/01-step-output.md
-    supporting_paths: []
-    response_to: ../outputs/01-step-review.md
-    required: true
-    prompt: |
-      Review this step output for unsupported claims, missing evidence, contradictions,
-      and follow-up questions that block the next step.
+
+lanes:
+  default:
+    description: general-purpose lane
+  # Add more lanes as you introduce capability tiers, e.g.:
+  # opus-tier:
+  #   description: deep reasoning, large context
+  # haiku-tier:
+  #   description: fast, low-effort tasks

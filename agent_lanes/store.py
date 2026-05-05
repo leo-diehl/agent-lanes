@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Iterator
 
-from .config import CheckpointConfig, RuntimeConfig
+from .config import RuntimeConfig
 from .defaults import DEFAULT_CLAIM_LEASE_SECONDS, DEFAULT_WAIT_TIMEOUT_SECONDS
 from .errors import StoreError, TimeoutError
 from .timeutil import iso_after, iso_now, parse_iso, timestamp_slug, utc_now
@@ -30,30 +30,6 @@ class HandoffStore:
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
         self.index_dir.mkdir(parents=True, exist_ok=True)
 
-    def create_from_checkpoint(
-        self,
-        config: RuntimeConfig,
-        checkpoint_id: str,
-        *,
-        source_agent: str = "codex",
-    ) -> dict[str, Any]:
-        checkpoint = config.checkpoints.get(checkpoint_id)
-        if checkpoint is None:
-            raise StoreError(f"unknown checkpoint: {checkpoint_id}")
-        return self.create_task(
-            workspace_id=config.workspace_id,
-            checkpoint_id=checkpoint.id,
-            source_agent=source_agent,
-            lane=checkpoint.lane,
-            workspace_root=config.workspace_root,
-            worktree_path=config.worktree_path,
-            expected_branch=config.expected_branch,
-            request_path=checkpoint.request_from,
-            response_path=checkpoint.response_to,
-            prompt=checkpoint.prompt,
-            supporting_paths=list(checkpoint.supporting_paths),
-        )
-
     def create_task(
         self,
         *,
@@ -68,6 +44,7 @@ class HandoffStore:
         response_path: str | Path,
         prompt: str,
         supporting_paths: list[str | Path | dict[str, Any]] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         workspace_root_path = Path(workspace_root).resolve()
         request = Path(request_path).resolve()
@@ -94,12 +71,14 @@ class HandoffStore:
             "supporting_paths": supporting,
             "response_path": str(response),
             "prompt": prompt,
+            "metadata": dict(metadata) if metadata else {},
             "state": "queued",
             "created_at": created_at,
             "updated_at": created_at,
             "claim_owner": None,
             "claim_token": None,
             "lease_expires_at": None,
+            "claimed_at": None,
             "completed_at": None,
             "failed_at": None,
             "failure_reason": None,
@@ -117,17 +96,16 @@ class HandoffStore:
         task_path = self.task_dir(task_id) / "task.json"
         if not task_path.exists():
             raise StoreError(f"unknown task: {task_id}")
-        return json.loads(task_path.read_text(encoding="utf-8"))
+        task = json.loads(task_path.read_text(encoding="utf-8"))
+        # Read-compat: older task.json files may lack metadata.
+        if "metadata" not in task:
+            task["metadata"] = {}
+        return task
 
     def resolve_ref(self, ref: str, config: RuntimeConfig | None = None) -> str:
         if (self.task_dir(ref) / "task.json").exists():
             return ref
-        if config is None:
-            raise StoreError(f"unknown task id and no config for checkpoint lookup: {ref}")
-        task_id = self.latest_task_id(config.workspace_id, ref)
-        if task_id is None:
-            raise StoreError(f"no task found for checkpoint: {ref}")
-        return task_id
+        raise StoreError(f"unknown task: {ref}")
 
     def latest_task_id(self, workspace_id: str, checkpoint_id: str) -> str | None:
         index_path = self.index_dir / f"{slug(workspace_id)}--{slug(checkpoint_id)}.json"
@@ -156,6 +134,8 @@ class HandoffStore:
         with self.locked():
             for task_path in self.tasks_dir.glob("*/task.json"):
                 task = json.loads(task_path.read_text(encoding="utf-8"))
+                if "metadata" not in task:
+                    task["metadata"] = {}
                 if lane is not None and task["lane"] != lane:
                     continue
                 if not include_completed and task["state"] in TASK_TERMINAL_STATES:
@@ -211,6 +191,44 @@ class HandoffStore:
             self._append_event_unlocked(task_id, "renewed", "claim lease renewed", {"owner": task["claim_owner"]})
             return task
 
+    def release_claim(
+        self,
+        task_id: str,
+        *,
+        claim_token: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Return a claimed task to the queued state.
+
+        Performs the claimed -> queued transition. Verifies the claim token,
+        clears claim_owner, claim_token, lease_expires_at, claimed_at, and
+        appends a 'released' event.
+        """
+        with self.locked():
+            task = self.get_task(task_id)
+            if task["state"] != "claimed":
+                raise StoreError(f"cannot release {task_id}; task is {task['state']}")
+            if claim_token != task["claim_token"]:
+                raise StoreError("claim token does not match active lease")
+            task.update(
+                {
+                    "state": "queued",
+                    "claim_owner": None,
+                    "claim_token": None,
+                    "lease_expires_at": None,
+                    "claimed_at": None,
+                    "updated_at": iso_now(),
+                }
+            )
+            atomic_write_json(self.task_dir(task_id) / "task.json", task)
+            self._append_event_unlocked(
+                task_id,
+                "released",
+                "claim released",
+                {"reason": reason} if reason else {},
+            )
+            return task
+
     def append_event(
         self,
         task_id: str,
@@ -235,6 +253,7 @@ class HandoffStore:
         blocking_count: int | None = None,
         nonblocking_count: int | None = None,
         expect_sha256: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         with self.locked():
             task = self.get_task(task_id)
@@ -248,7 +267,8 @@ class HandoffStore:
                 raise StoreError(
                     f"reviewed request hash does not match task: expected {task['request_sha256']}, got {expect_sha256}"
                 )
-            if blocking_count is not None and blocking_count > 0 and verdict != "needs-revision":
+            # Verdict-conditional logic only fires when verdict is set.
+            if verdict is not None and blocking_count is not None and blocking_count > 0 and verdict != "needs-revision":
                 raise StoreError("blocking-count > 0 requires verdict needs-revision")
             request_changed = False
             try:
@@ -269,6 +289,7 @@ class HandoffStore:
                 "verdict": verdict,
                 "blocking_count": blocking_count,
                 "nonblocking_count": nonblocking_count,
+                "metadata": dict(metadata) if metadata else {},
                 "created_at": now,
             }
             atomic_write_json(self.task_dir(task_id) / "response.json", response)
@@ -297,7 +318,10 @@ class HandoffStore:
         while True:
             response_path = self.task_dir(task_id) / "response.json"
             if response_path.exists():
-                return json.loads(response_path.read_text(encoding="utf-8"))
+                response = json.loads(response_path.read_text(encoding="utf-8"))
+                if "metadata" not in response:
+                    response["metadata"] = {}
+                return response
             task = self.get_task(task_id)
             if task["state"] == "failed":
                 raise StoreError(task.get("failure_reason") or f"task failed: {task_id}")
@@ -357,6 +381,8 @@ class HandoffStore:
             if task["lane"] != lane:
                 continue
             if task["state"] == "queued" or (task["state"] == "claimed" and lease_expired(task)):
+                if "metadata" not in task:
+                    task["metadata"] = {}
                 tasks.append(task)
         tasks.sort(key=lambda item: item["created_at"])
         return tasks[0] if tasks else None

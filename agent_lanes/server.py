@@ -71,6 +71,7 @@ class HandoffRequestHandler(BaseHTTPRequestHandler):
                     response_path=Path(body["response_path"]),
                     prompt=body.get("prompt", ""),
                     supporting_paths=body.get("supporting_paths", []),
+                    metadata=body.get("metadata"),
                 )
                 self._send_json({"task": task}, HTTPStatus.CREATED)
                 return
@@ -80,6 +81,15 @@ class HandoffRequestHandler(BaseHTTPRequestHandler):
                     task_id,
                     owner=body.get("owner", "worker"),
                     lease_seconds=float(body.get("lease_seconds", DEFAULT_CLAIM_LEASE_SECONDS)),
+                )
+                self._send_json({"task": task})
+                return
+            if parsed.path.startswith("/tasks/") and parsed.path.endswith("/release"):
+                task_id = parsed.path.split("/")[2]
+                task = self.server.store.release_claim(
+                    task_id,
+                    claim_token=body.get("claim_token"),
+                    reason=body.get("reason"),
                 )
                 self._send_json({"task": task})
                 return
@@ -106,6 +116,7 @@ class HandoffRequestHandler(BaseHTTPRequestHandler):
                     blocking_count=body.get("blocking_count"),
                     nonblocking_count=body.get("nonblocking_count"),
                     expect_sha256=body.get("expect_sha256"),
+                    metadata=body.get("metadata"),
                 )
                 self._send_json({"response": response})
                 return
