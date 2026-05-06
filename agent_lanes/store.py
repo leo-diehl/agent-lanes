@@ -261,6 +261,20 @@ class HandoffStore:
             self.get_task(task_id)
             self._append_event_unlocked(task_id, event_type, message, data)
 
+    def task_events(self, task_id: str, *, limit: int | None = None) -> list[dict[str, Any]]:
+        _validate_task_id(task_id)
+        event_path = self.task_dir(task_id) / "events.jsonl"
+        if not event_path.exists():
+            return []
+        events: list[dict[str, Any]] = []
+        for line in event_path.read_text(encoding="utf-8").splitlines():
+            if not line:
+                continue
+            events.append(json.loads(line))
+        if limit is not None and limit >= 0:
+            return events[-limit:]
+        return events
+
     def submit_response(
         self,
         task_id: str,

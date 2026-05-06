@@ -37,7 +37,8 @@
 #                         To extend the dispatcher to a vendor whose CLI takes
 #                         paths or args from the task, fork the script and use
 #                         an argv array invocation instead of eval.
-#   LEASE_SECONDS       - claim lease duration (default: 7200)
+#   LEASE_SECONDS       - claim lease duration (default: 900; renewed while the child runs)
+#   HEARTBEAT_SECONDS   - renewal/progress heartbeat interval (default: 60; 0 disables)
 #   WAIT_TIMEOUT        - long-poll timeout (default: 21600)
 #
 # Usage examples:
@@ -68,7 +69,8 @@ CONFIG="${CONFIG:-${QUEUE_ROOT%/state}/handoff.yaml}"
 
 LANE="${LANE:-default}"
 OWNER="${OWNER:-${USER:-worker}-${VENDOR}-$$}"
-LEASE_SECONDS="${LEASE_SECONDS:-7200}"
+LEASE_SECONDS="${LEASE_SECONDS:-900}"
+HEARTBEAT_SECONDS="${HEARTBEAT_SECONDS:-60}"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-21600}"
 if [ -z "${HEADLESS_AGENT_CMD:-}" ]; then
   [ "${VENDOR}" = "claude" ] && HEADLESS_AGENT_CMD='claude -p ""' || HEADLESS_AGENT_CMD="codex exec --prompt-stdin"
@@ -76,6 +78,65 @@ fi
 
 command -v jq >/dev/null 2>&1 || { log "dispatcher: jq is required on PATH"; exit 1; }
 command -v agent-lanes >/dev/null 2>&1 || { log "dispatcher: agent-lanes is required on PATH"; exit 1; }
+
+HEARTBEAT_PID=""
+
+stop_heartbeat() {
+  if [ -n "${HEARTBEAT_PID:-}" ]; then
+    kill "${HEARTBEAT_PID}" 2>/dev/null || true
+    wait "${HEARTBEAT_PID}" 2>/dev/null || true
+    HEARTBEAT_PID=""
+  fi
+}
+
+cleanup() {
+  stop_heartbeat
+}
+
+trap cleanup EXIT INT TERM
+
+append_task_event() {
+  local event_type="$1" message="$2"
+  agent-lanes --config "${CONFIG}" --store "${QUEUE_ROOT}" event "${TASK_ID}" \
+    --type "${event_type}" \
+    --message "${message}" \
+    --data "owner=${OWNER}" \
+    --data "vendor=${VENDOR}" \
+    --data "model_class=${MODEL_CLASS}" \
+    --data "effort=${EFFORT}" \
+    --json >/dev/null 2>&1 || true
+}
+
+heartbeat_loop() {
+  local parent_pid="$1" fails=0
+  while true; do
+    sleep "${HEARTBEAT_SECONDS}" || return
+    if ! kill -0 "${parent_pid}" 2>/dev/null; then
+      log "[heartbeat] parent gone for task ${TASK_ID}; exiting"
+      return
+    fi
+    if agent-lanes --config "${CONFIG}" --store "${QUEUE_ROOT}" renew "${TASK_ID}" \
+      --claim-token "${CLAIM_TOKEN}" \
+      --lease-seconds "${LEASE_SECONDS}" \
+      --json >/dev/null 2>&1; then
+      fails=0
+      continue
+    fi
+    fails=$((fails + 1))
+    log "[warn] task ${TASK_ID} heartbeat/renew failed (${fails}/5)"
+    if [ "${fails}" -ge 5 ]; then
+      log "[error] task ${TASK_ID} heartbeat/renew failed 5x; giving up"
+      return
+    fi
+  done
+}
+
+start_heartbeat() {
+  HEARTBEAT_PID=""
+  [ "${HEARTBEAT_SECONDS}" = "0" ] && return
+  heartbeat_loop "$$" &
+  HEARTBEAT_PID="$!"
+}
 
 normalize_effort() {
   case "${1:-medium}" in
@@ -185,6 +246,7 @@ while true; do
   fi
   CLAIM_TOKEN="$(printf '%s' "${CLAIM_JSON}" | jq -r '.claim_token // empty')"
   [ -n "${CLAIM_TOKEN}" ] || { log "[race] task ${TASK_ID} claim returned no token"; continue; }
+  append_task_event "dispatcher_started" "dispatcher claimed task and is preparing headless agent"
 
   MODEL_FLAG="$(model_flag "${MODEL_CLASS}")"
   EFFORT_FLAG="$(effort_flag "${EFFORT}")"
@@ -196,13 +258,19 @@ while true; do
   rm -f "${OUTPUT_FILE}"
 
   build_input "${INPUT_FILE}"
+  append_task_event "headless_started" "headless agent invocation started"
+  start_heartbeat
   if ! eval "${HEADLESS_AGENT_CMD} ${AGENT_FLAGS}" < "${INPUT_FILE}" > "${OUTPUT_FILE}" 2> "${ERROR_FILE}"; then
+    stop_heartbeat
+    append_task_event "headless_failed" "headless agent invocation failed"
     { printf 'headless agent invocation failed for task %s\n' "${TASK_ID}"; [ -s "${ERROR_FILE}" ] && { printf '\n--- stderr ---\n'; cat "${ERROR_FILE}"; }; } > "${OUTPUT_FILE}"
     agent-lanes --config "${CONFIG}" --store "${QUEUE_ROOT}" respond "${TASK_ID}" --claim-token "${CLAIM_TOKEN}" --status failed --file "${OUTPUT_FILE}" --json >/dev/null
     rm -rf "${TMPDIR_RUN}"
     rm -f "${OUTPUT_FILE}"
     continue
   fi
+  stop_heartbeat
+  append_task_event "headless_completed" "headless agent invocation completed"
 
   agent-lanes --config "${CONFIG}" --store "${QUEUE_ROOT}" respond "${TASK_ID}" --claim-token "${CLAIM_TOKEN}" --file "${OUTPUT_FILE}" --json >/dev/null
   rm -rf "${TMPDIR_RUN}"

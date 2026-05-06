@@ -209,7 +209,9 @@ Each event line records:
 - optional `data`
 
 Events are append-only under the task lock. Event types include `created`,
-`claimed`, `renewed`, `released`, `response`.
+`claimed`, `renewed`, `released`, `response`, and dispatcher diagnostics such as
+`dispatcher_started`, `headless_started`, `headless_completed`, and
+`headless_failed`.
 
 ## 11. CLI
 
@@ -226,6 +228,7 @@ next --lane <lane>
 watch --lane <lane>
 claim <task-id> [--owner <name>] [--lease-seconds <n>]
 renew <task-id> --claim-token <token> [--lease-seconds <n>]
+event <task-id> [--type <event-type>] [--message <text>] [--data key=value]...
 respond <task-id> --claim-token <token> [--file <path>|-] [--body <text>]
         [--reviewer <name>] [--status completed|failed]
         [--verdict accept|accept-with-follow-ups|needs-revision]
@@ -257,6 +260,14 @@ many projects at one workspace-level queue.
 
 `--metadata key=value` is repeatable on both `submit` and `respond`.
 
+`event` appends a diagnostic event to `events.jsonl`. It is intended for
+dispatchers and operators to leave progress markers; it is not an authorization
+boundary.
+
+While `wait <task-id>` is blocked on a claimed task, non-quiet heartbeat output
+includes the claim owner, claimed age, lease expiry, response path, whether the
+response exists, the latest event, and a suggested next action.
+
 `status` accepts these flags for queue-wide summaries:
 
 - `--all` — summarize every task in the queue.
@@ -273,6 +284,8 @@ Long-poll defaults:
 
 - `wait`, `wait --lane`, `next`, `watch`: 21,600 seconds.
 - `claim` lease: 7,200 seconds.
+- Bundled bash dispatcher claim lease: 900 seconds, renewed every 60 seconds
+  while the child headless agent is running.
 
 `claim` verifies the current request file SHA-256 against `request_sha256` and
 refuses stale input. `respond` repeats that verification before accepting a

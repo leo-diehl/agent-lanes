@@ -22,6 +22,7 @@ from .errors import HandoffError, TimeoutError
 from .selftest import run_self_test
 from .server import serve
 from .store import HandoffStore, _require_inside
+from .timeutil import parse_iso, utc_now
 
 
 # --- init ---------------------------------------------------------------------
@@ -93,6 +94,11 @@ def main(argv: list[str] | None = None) -> int:
                 {"status": "released", "task_id": task["id"], "task": task},
                 args.json,
             )
+            return 0
+        if args.command == "event":
+            data = _parse_metadata(args.data or [])
+            store.append_event(args.task_id, args.type, args.message, data)
+            _print({"status": "ok", "task_id": args.task_id}, args.json)
             return 0
         if args.command == "respond":
             body = _response_body(args)
@@ -266,6 +272,18 @@ def build_parser() -> argparse.ArgumentParser:
     release.add_argument("task_id")
     release.add_argument("--claim-token", required=True)
     release.add_argument("--reason", default=None)
+
+    event = sub.add_parser("event", parents=[common_output], help="append a diagnostic event to a task")
+    event.add_argument("task_id")
+    event.add_argument("--type", default="note")
+    event.add_argument("--message", default="")
+    event.add_argument(
+        "--data",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="event data; repeatable",
+    )
 
     # respond ----------------------------------------------------------
     respond = sub.add_parser("respond", parents=[common_output], help="reviewer: submit one claimed task response")
@@ -671,9 +689,11 @@ def _wait_for_response(
             return store.wait_for_response(ref, config=config, timeout=interval)
         except TimeoutError:
             if time.monotonic() >= deadline:
+                if not quiet:
+                    print(_wait_diagnostic_line(store, ref), file=sys.stderr, flush=True)
                 raise
             if not quiet:
-                print(f"agent-lanes wait: waiting for response {ref}", file=sys.stderr, flush=True)
+                print(_wait_diagnostic_line(store, ref), file=sys.stderr, flush=True)
 
 
 def _print_idle(lane: str, timeout: float, as_json: bool, store: HandoffStore) -> None:
@@ -767,8 +787,16 @@ def _task_status_view(task: dict[str, object], store: HandoffStore) -> dict[str,
 
     view = dict(task)
     response_exists = (store.task_dir(str(task["id"])) / "response.json").exists()
+    events = store.task_events(str(task["id"]), limit=1)
+    last_event = events[-1] if events else None
+    view["response_exists"] = response_exists
     view["lease_expired"] = lease_expired(task) if task["state"] == "claimed" else False
     view["missing_response"] = task["state"] == "completed" and not response_exists
+    view["last_event"] = last_event
+    view["last_event_age_seconds"] = _age_seconds(last_event.get("created_at")) if last_event else None
+    if task["state"] == "claimed":
+        view["claimed_age_seconds"] = _age_seconds(task.get("claimed_at"))
+        view["seconds_until_lease_expiry"] = _seconds_until(task.get("lease_expires_at"))
     view["navigation"] = {
         "workspace_root": task.get("workspace_root"),
         "worktree_path": task.get("worktree_path"),
@@ -790,8 +818,15 @@ def _task_next_action(task: dict[str, object]) -> str:
         return "monitor: report task JSON and stop; reviewer: claim this task when ready"
     if state == "claimed":
         if task.get("lease_expired"):
-            return "claim lease expired; recover only if the reviewer is stale or abandoned"
-        return "wait for reviewer response; recover only if stale or abandoned"
+            return "claim lease expired; safe to reclaim if the reviewer is stale or abandoned"
+        owner = task.get("claim_owner") or "unknown"
+        lease = task.get("lease_expires_at") or "unknown"
+        last_event = task.get("last_event") or {}
+        last_type = last_event.get("type", "none") if isinstance(last_event, dict) else "none"
+        return (
+            f"claimed by {owner}; wait for response or inspect that worker if no progress appears. "
+            f"Lease expires at {lease}; last_event={last_type}"
+        )
     if state == "completed" and task.get("missing_response"):
         return "response file is missing from state; inspect task state before continuing"
     if state == "completed":
@@ -821,3 +856,44 @@ def _print(data: dict[str, object], as_json: bool) -> None:
         print(data["task_id"])
     else:
         print(json.dumps(data, indent=2, sort_keys=True))
+
+
+def _wait_diagnostic_line(store: HandoffStore, task_id: str) -> str:
+    try:
+        task = _task_status_view(store.get_task(task_id), store)
+    except Exception as exc:  # pragma: no cover - diagnostic path must not mask wait loop
+        return f"agent-lanes wait: waiting for response {task_id}; status unavailable: {exc}"
+    if task.get("state") == "queued":
+        return f"agent-lanes wait: task_id={task_id}; state=queued; awaiting reviewer claim"
+    last_event = task.get("last_event") or {}
+    if isinstance(last_event, dict):
+        last_event_desc = f"{last_event.get('type', 'none')}@{last_event.get('created_at', 'unknown')}"
+    else:
+        last_event_desc = "none"
+    parts = [
+        f"agent-lanes wait: task_id={task_id}",
+        f"state={task.get('state')}",
+        f"claim_owner={task.get('claim_owner')}",
+        f"claimed_age_seconds={task.get('claimed_age_seconds')}",
+        f"lease_expires_at={task.get('lease_expires_at')}",
+        f"lease_expired={task.get('lease_expired')}",
+        f"response_path={task.get('response_path')}",
+        f"response_exists={task.get('response_exists')}",
+        f"last_event={last_event_desc}",
+        f"next_action={task.get('next_action')}",
+    ]
+    return "; ".join(parts)
+
+
+def _age_seconds(value: object) -> int | None:
+    parsed = parse_iso(str(value)) if value else None
+    if parsed is None:
+        return None
+    return int((utc_now() - parsed).total_seconds())
+
+
+def _seconds_until(value: object) -> int | None:
+    parsed = parse_iso(str(value)) if value else None
+    if parsed is None:
+        return None
+    return int((parsed - utc_now()).total_seconds())

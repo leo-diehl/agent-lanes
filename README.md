@@ -116,7 +116,10 @@ the same chat handles tasks at any model/effort the queue receives.
 **Mode B (bash dispatcher).** The dispatcher is a long-running shell loop calling
 a headless agent CLI (`claude -p`, `codex exec`) for each task. Best for
 unattended use or environments without a chat client. Each task incurs API token
-cost.
+cost. The bundled dispatcher claims each task with a 15-minute lease and renews
+that lease every minute while the headless child is running; if the dispatcher
+dies, the task becomes reclaimable after the shorter lease instead of waiting for
+the general two-hour claim default.
 
 ```bash
 bash ~/myworkspace/dispatchers/claude.sh   # one terminal
@@ -314,7 +317,9 @@ agent-lanes is local-first and protocol-light. Compared to alternatives:
   `jq`; install via your package manager (e.g. `brew install jq`,
   `apt install jq`).
 - **`wait` returns nothing for hours** — the long-poll runs for 6 hours by
-  default; pass `--timeout <seconds>` for shorter polls.
+  default; pass `--timeout <seconds>` for shorter polls. While waiting on a
+  claimed task, non-quiet output includes claim owner, claimed age, lease expiry,
+  response path, latest event, and suggested next action.
 - **`claim failed: stale request_sha256`** — the request file changed after
   submit; re-submit or re-stage the artifact.
 - **`pip install` fails with "externally-managed-environment"** — your Python

@@ -220,6 +220,19 @@ def test_release_returns_task_to_queued(tmp_path: Path) -> None:
     assert "released" in types
 
 
+def test_store_reads_task_events(tmp_path: Path) -> None:
+    _, config, store = make_workspace(tmp_path)
+    task = make_task(store, config)
+
+    store.append_event(task["id"], "progress", "worker still running", {"step": "review"})
+
+    events = store.task_events(task["id"])
+    assert events[-1]["type"] == "progress"
+    assert events[-1]["message"] == "worker still running"
+    assert events[-1]["data"] == {"step": "review"}
+    assert store.task_events(task["id"], limit=1) == [events[-1]]
+
+
 def test_release_with_wrong_claim_token_is_rejected(tmp_path: Path) -> None:
     _, config, store = make_workspace(tmp_path)
     task = make_task(store, config)

@@ -253,7 +253,11 @@ def test_cli_full_role_choreography_has_guidance(tmp_path: Path, capsys) -> None
     status = json.loads(capsys.readouterr().out)
     assert status["task"]["state"] == "claimed"
     assert status["task"]["claim_owner"] == "claude-chat"
-    assert "wait for reviewer response" in status["task"]["next_action"]
+    assert "claimed by claude-chat" in status["task"]["next_action"]
+    assert status["task"]["claimed_age_seconds"] is not None
+    assert status["task"]["seconds_until_lease_expiry"] is not None
+    assert status["task"]["response_exists"] is False
+    assert status["task"]["last_event"]["type"] == "claimed"
     assert status["task"]["navigation"]["request_path"].endswith("01-step-output.md")
 
     assert main(
@@ -284,6 +288,89 @@ def test_cli_full_role_choreography_has_guidance(tmp_path: Path, capsys) -> None
     assert main(["--config", str(config_path), "wait", task_id, "--timeout", "1", "--json"]) == 0
     waited = json.loads(capsys.readouterr().out)
     assert Path(waited["response_path"]).read_text(encoding="utf-8") == "No blockers.\n"
+
+
+def test_cli_wait_prints_claimed_task_diagnostics(tmp_path: Path, capsys) -> None:
+    workspace, config_path, config = make_workspace(tmp_path)
+    task_id = submit_inline(config_path, workspace, capsys)
+    store = HandoffStore(config.store_root)
+    store.claim_task(task_id, owner="leo-claude-dispatcher")
+
+    rc = main(
+        [
+            "--config",
+            str(config_path),
+            "wait",
+            task_id,
+            "--timeout",
+            "0.05",
+            "--heartbeat-seconds",
+            "0.01",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "agent-lanes wait: task_id=" in captured.err
+    assert "state=claimed" in captured.err
+    assert "claim_owner=leo-claude-dispatcher" in captured.err
+    assert "lease_expires_at=" in captured.err
+    assert "response_path=" in captured.err
+    assert "last_event=claimed@" in captured.err
+    assert "next_action=claimed by leo-claude-dispatcher" in captured.err
+
+
+def test_cli_wait_prints_compact_queued_task_diagnostic(tmp_path: Path, capsys) -> None:
+    workspace, config_path, _ = make_workspace(tmp_path)
+    task_id = submit_inline(config_path, workspace, capsys)
+
+    rc = main(
+        [
+            "--config",
+            str(config_path),
+            "wait",
+            task_id,
+            "--timeout",
+            "0.05",
+            "--heartbeat-seconds",
+            "0.01",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert rc == 2
+    expected = f"agent-lanes wait: task_id={task_id}; state=queued; awaiting reviewer claim"
+    assert expected in captured.err
+    assert "claim_owner=None" not in captured.err
+    assert "lease_expires_at=None" not in captured.err
+
+
+def test_cli_event_appends_diagnostic_event(tmp_path: Path, capsys) -> None:
+    workspace, config_path, config = make_workspace(tmp_path)
+    task_id = submit_inline(config_path, workspace, capsys)
+
+    assert main(
+        [
+            "--config",
+            str(config_path),
+            "event",
+            task_id,
+            "--type",
+            "dispatcher_heartbeat",
+            "--message",
+            "child still running",
+            "--data",
+            "owner=leo-claude-dispatcher",
+            "--json",
+        ]
+    ) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"status": "ok", "task_id": task_id}
+    events = HandoffStore(config.store_root).task_events(task_id, limit=1)
+    assert events[0]["type"] == "dispatcher_heartbeat"
+    assert events[0]["message"] == "child still running"
+    assert events[0]["data"] == {"owner": "leo-claude-dispatcher"}
 
 
 def test_cli_respond_accepts_stdin_file_dash(tmp_path: Path, capsys, monkeypatch) -> None:
