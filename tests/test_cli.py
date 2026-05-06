@@ -615,6 +615,16 @@ def test_cli_init_pool_scaffolds_shared_queue_and_dispatchers(tmp_path: Path, ca
     dispatchers_dir = target / "dispatchers"
     config_path = queue_dir / "handoff.yaml"
     store_path = queue_dir / "state"
+    assert out["queue"] == str(queue_dir)
+    assert out["config"] == str(config_path)
+    assert out["store"] == str(store_path)
+    assert out["dispatchers"] == [
+        {"vendor": "claude", "wrapper": str(dispatchers_dir / "claude.sh")},
+        {"vendor": "codex", "wrapper": str(dispatchers_dir / "codex.sh")},
+    ]
+    assert out["polling_prompt"] == str(dispatchers_dir / "POLLING-CHAT-PROMPT.md")
+    assert "claude_dispatcher" not in out
+    assert "codex_dispatcher" not in out
     expected_dispatcher_template = (
         Path(__file__).resolve().parents[1] / "agent_lanes" / "templates" / "workspace" / "dispatcher.sh"
     )

@@ -592,8 +592,10 @@ def _cmd_init_pool(args: argparse.Namespace) -> int:
                     "queue": str(queue_dir),
                     "config": str(config_path),
                     "store": str(store_path),
-                    "claude_dispatcher": str(dispatchers_dir / "claude.sh"),
-                    "codex_dispatcher": str(dispatchers_dir / "codex.sh"),
+                    "dispatchers": [
+                        {"vendor": "claude", "wrapper": str(dispatchers_dir / "claude.sh")},
+                        {"vendor": "codex", "wrapper": str(dispatchers_dir / "codex.sh")},
+                    ],
                     "polling_prompt": str(dispatchers_dir / "POLLING-CHAT-PROMPT.md"),
                 },
                 indent=2,
