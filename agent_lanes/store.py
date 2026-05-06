@@ -24,7 +24,7 @@ class HandoffStore:
     def __init__(self, root: str | Path):
         self.root = Path(root).expanduser().resolve()
         self.tasks_dir = self.root / "tasks"
-        self.index_dir = self.root / "indexes" / "checkpoints"
+        self.index_dir = self.root / "indexes" / "correlations"
         self.lock_path = self.root / "lock"
         self.root.mkdir(parents=True, exist_ok=True)
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
@@ -34,7 +34,7 @@ class HandoffStore:
         self,
         *,
         workspace_id: str,
-        checkpoint_id: str,
+        correlation_id: str | None = None,
         source_agent: str,
         lane: str,
         workspace_root: str | Path,
@@ -45,7 +45,13 @@ class HandoffStore:
         prompt: str,
         supporting_paths: list[str | Path | dict[str, Any]] | None = None,
         metadata: dict[str, Any] | None = None,
+        checkpoint_id: str | None = None,  # legacy alias; prefer correlation_id
     ) -> dict[str, Any]:
+        # Accept legacy checkpoint_id arg as a compatibility alias for one minor version.
+        if correlation_id is None:
+            correlation_id = checkpoint_id
+        if correlation_id is None:
+            raise StoreError("create_task requires correlation_id")
         workspace_root_path = Path(workspace_root).resolve()
         request = Path(request_path).resolve()
         response = Path(response_path).resolve()
@@ -56,11 +62,11 @@ class HandoffStore:
         supporting = self._supporting_path_records(workspace_root_path, supporting_paths or [])
         request_sha = sha256_file(request)
         created_at = iso_now()
-        task_id = self._new_task_id(checkpoint_id, request_sha)
+        task_id = self._new_task_id(correlation_id, request_sha)
         task = {
             "id": task_id,
             "workspace_id": workspace_id,
-            "checkpoint_id": checkpoint_id,
+            "correlation_id": correlation_id,
             "source_agent": source_agent,
             "lane": lane,
             "workspace_root": str(workspace_root_path),
@@ -88,7 +94,7 @@ class HandoffStore:
             task_dir.mkdir(parents=True, exist_ok=False)
             atomic_write_json(task_dir / "task.json", task)
             (task_dir / "events.jsonl").touch()
-            self._write_checkpoint_index(workspace_id, checkpoint_id, task_id)
+            self._write_correlation_index(workspace_id, correlation_id, task_id)
             self._append_event_unlocked(task_id, "created", "task queued", {"lane": lane})
         return task
 
@@ -96,7 +102,7 @@ class HandoffStore:
         task_path = self.task_dir(task_id) / "task.json"
         if not task_path.exists():
             raise StoreError(f"unknown task: {task_id}")
-        task = json.loads(task_path.read_text(encoding="utf-8"))
+        task = _load_task(task_path)
         # Read-compat: older task.json files may lack metadata.
         if "metadata" not in task:
             task["metadata"] = {}
@@ -107,8 +113,8 @@ class HandoffStore:
             return ref
         raise StoreError(f"unknown task: {ref}")
 
-    def latest_task_id(self, workspace_id: str, checkpoint_id: str) -> str | None:
-        index_path = self.index_dir / f"{slug(workspace_id)}--{slug(checkpoint_id)}.json"
+    def latest_task_id(self, workspace_id: str, correlation_id: str) -> str | None:
+        index_path = self.index_dir / f"{slug(workspace_id)}--{slug(correlation_id)}.json"
         if not index_path.exists():
             return None
         return json.loads(index_path.read_text(encoding="utf-8"))["task_id"]
@@ -133,7 +139,7 @@ class HandoffStore:
         tasks: list[dict[str, Any]] = []
         with self.locked():
             for task_path in self.tasks_dir.glob("*/task.json"):
-                task = json.loads(task_path.read_text(encoding="utf-8"))
+                task = _load_task(task_path)
                 if "metadata" not in task:
                     task["metadata"] = {}
                 if lane is not None and task["lane"] != lane:
@@ -351,13 +357,13 @@ class HandoffStore:
             finally:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
-    def _new_task_id(self, checkpoint_id: str, request_sha: str) -> str:
-        return f"{timestamp_slug()}-{slug(checkpoint_id)}-{request_sha[:12]}"
+    def _new_task_id(self, correlation_id: str, request_sha: str) -> str:
+        return f"{timestamp_slug()}-{slug(correlation_id)}-{request_sha[:12]}"
 
-    def _write_checkpoint_index(self, workspace_id: str, checkpoint_id: str, task_id: str) -> None:
+    def _write_correlation_index(self, workspace_id: str, correlation_id: str, task_id: str) -> None:
         atomic_write_json(
-            self.index_dir / f"{slug(workspace_id)}--{slug(checkpoint_id)}.json",
-            {"workspace_id": workspace_id, "checkpoint_id": checkpoint_id, "task_id": task_id, "updated_at": iso_now()},
+            self.index_dir / f"{slug(workspace_id)}--{slug(correlation_id)}.json",
+            {"workspace_id": workspace_id, "correlation_id": correlation_id, "task_id": task_id, "updated_at": iso_now()},
         )
 
     def _append_event_unlocked(
@@ -377,7 +383,7 @@ class HandoffStore:
     def _next_task_unlocked(self, lane: str) -> dict[str, Any] | None:
         tasks: list[dict[str, Any]] = []
         for task_path in self.tasks_dir.glob("*/task.json"):
-            task = json.loads(task_path.read_text(encoding="utf-8"))
+            task = _load_task(task_path)
             if task["lane"] != lane:
                 continue
             if task["state"] == "queued" or (task["state"] == "claimed" and lease_expired(task)):
@@ -417,6 +423,22 @@ class HandoffStore:
                 raise StoreError(f"supporting path does not exist: {path}")
             records.append({"path": str(path), "sha256": sha256_file(path)})
         return records
+
+
+def _load_task(task_path: Path) -> dict[str, Any]:
+    """Read a task.json from disk, applying a read-compat shim for the legacy
+    ``checkpoint_id`` field name.
+
+    For one minor version we accept either ``correlation_id`` (new) or
+    ``checkpoint_id`` (legacy). When both are present, ``correlation_id`` wins.
+    The legacy key is dropped from the in-memory representation so callers see
+    a single canonical name.
+    """
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    if "correlation_id" not in task and "checkpoint_id" in task:
+        task["correlation_id"] = task["checkpoint_id"]
+    task.pop("checkpoint_id", None)
+    return task
 
 
 def lease_expired(task: dict[str, Any]) -> bool:

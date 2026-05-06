@@ -381,7 +381,7 @@ def _cmd_submit(args: argparse.Namespace, config: RuntimeConfig, store: HandoffS
     )
     expected_branch = fields.get("branch") or config.expected_branch
 
-    # checkpoint_id: use --task-id, or task-file basename, or lane-derived
+    # correlation_id: use --task-id, or task-file basename, or lane-derived
     correlation = args.task_correlation_id
     if not correlation:
         if args.task_path:
@@ -391,7 +391,7 @@ def _cmd_submit(args: argparse.Namespace, config: RuntimeConfig, store: HandoffS
 
     task = store.create_task(
         workspace_id=config.workspace_id,
-        checkpoint_id=correlation,
+        correlation_id=correlation,
         source_agent=args.source_agent,
         lane=str(lane),
         workspace_root=config.workspace_root,
@@ -688,7 +688,7 @@ def _print_response(response: dict[str, object], task: dict[str, object], store:
     payload = {
         "status": response["status"],
         "task_id": task["id"],
-        "checkpoint_id": task["checkpoint_id"],
+        "correlation_id": task["correlation_id"],
         "lane": task["lane"],
         "response_path": task["response_path"],
         "verdict": response.get("verdict"),

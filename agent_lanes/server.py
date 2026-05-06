@@ -59,9 +59,13 @@ class HandoffRequestHandler(BaseHTTPRequestHandler):
             parsed = urlparse(self.path)
             body = self._read_json()
             if parsed.path == "/tasks":
+                # Accept either correlation_id (new) or checkpoint_id (legacy alias).
+                correlation_id = body.get("correlation_id") or body.get("checkpoint_id")
+                if correlation_id is None:
+                    raise KeyError("correlation_id")
                 task = self.server.store.create_task(
                     workspace_id=body["workspace_id"],
-                    checkpoint_id=body["checkpoint_id"],
+                    correlation_id=correlation_id,
                     source_agent=body.get("source_agent", "api"),
                     lane=body["lane"],
                     workspace_root=Path(body["workspace_root"]),

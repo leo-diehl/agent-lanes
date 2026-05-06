@@ -39,7 +39,7 @@ def make_task(store: HandoffStore, config, *, lane: str = "claude-review", metad
     workspace = config.workspace_root
     return store.create_task(
         workspace_id=config.workspace_id,
-        checkpoint_id="phase-01-review",
+        correlation_id="phase-01-review",
         source_agent="orchestrator",
         lane=lane,
         workspace_root=config.workspace_root,
@@ -285,6 +285,26 @@ lanes:
 
     assert config.workspace_root == workspace.resolve()
     assert config.store_root == shared_state.resolve()
+
+
+def test_legacy_task_json_with_checkpoint_id_loads_via_correlation_id(tmp_path: Path) -> None:
+    """A task.json written by an older release that still uses ``checkpoint_id``
+    must remain readable for one minor version. Loaded tasks expose the value
+    under the canonical ``correlation_id`` name."""
+    _, config, store = make_workspace(tmp_path)
+    task = make_task(store, config)
+    task_path = config.store_root / "tasks" / task["id"] / "task.json"
+
+    # Rewrite the on-disk task.json in the legacy shape: drop correlation_id and
+    # set checkpoint_id as the older release would have.
+    raw = json.loads(task_path.read_text(encoding="utf-8"))
+    legacy_value = raw.pop("correlation_id")
+    raw["checkpoint_id"] = legacy_value
+    task_path.write_text(json.dumps(raw, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    loaded = store.get_task(task["id"])
+    assert loaded["correlation_id"] == legacy_value
+    assert "checkpoint_id" not in loaded
 
 
 def test_config_rejects_checkpoints_section(tmp_path: Path) -> None:

@@ -35,7 +35,7 @@ lanes:
         store = HandoffStore(config.store_root)
         task = store.create_task(
             workspace_id=config.workspace_id,
-            checkpoint_id="self-test",
+            correlation_id="self-test",
             source_agent="self-test",
             lane="default",
             workspace_root=config.workspace_root,

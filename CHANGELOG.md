@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- Renamed the `task.json.checkpoint_id` field to `correlation_id`. Older
+  on-disk task records are read transparently via a one-minor-version
+  read-compat shim and rewritten under the canonical name on the next state
+  mutation. The legacy key will be dropped in v0.2.
+- Renamed the on-disk index directory `indexes/checkpoints/` to
+  `indexes/correlations/` to match the field rename.
+
 ## [0.1.0] - 2026-05-05
 
 ### Added

@@ -42,8 +42,8 @@ For an engine config at `<project>/handoff/handoff.yaml`, the default store is:
       events.jsonl
       response.json
   indexes/
-    checkpoints/
-      <workspace-id>--<checkpoint-id>.json
+    correlations/
+      <workspace-id>--<correlation-id>.json
   lock
 ```
 
@@ -142,7 +142,7 @@ and `claimed_at`. `release` clears these and returns the task to `queued`.
 
 - `id`
 - `workspace_id`
-- `checkpoint_id` (free-form correlation id)
+- `correlation_id` (free-form correlation tag)
 - `source_agent`
 - `lane`
 - `workspace_root`
@@ -164,6 +164,11 @@ and `claimed_at`. `release` clears these and returns the task to `queued`.
 - `completed_at`
 - `failed_at`
 - `failure_reason`
+
+Compatibility note: `correlation_id` was previously named `checkpoint_id`. Older
+on-disk `task.json` files that still use `checkpoint_id` are read transparently
+for one minor version and rewritten under the canonical name on the next state
+mutation; the legacy key will be dropped in v0.2.
 
 ## 9. Response JSON shape
 
