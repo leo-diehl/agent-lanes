@@ -26,7 +26,7 @@ sub-task from a different model.
 ## Install
 
 ```bash
-# From PyPI (once published)
+# From PyPI
 pip install agent-lanes
 
 # From GitHub
