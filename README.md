@@ -1,5 +1,6 @@
 # agent-lanes
 
+[![PyPI](https://img.shields.io/pypi/v/agent-lanes.svg)](https://pypi.org/project/agent-lanes/)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/leo-diehl/agent-lanes/actions/workflows/test.yml/badge.svg)](https://github.com/leo-diehl/agent-lanes/actions/workflows/test.yml)
