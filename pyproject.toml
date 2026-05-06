@@ -6,11 +6,29 @@ build-backend = "setuptools.build_meta"
 name = "agent-lanes"
 version = "0.1.0"
 description = "Local file-backed coordination queue for AI coding agents"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Leonardo Diehl"}]
 requires-python = ">=3.11"
 dependencies = ["PyYAML>=6"]
+keywords = ["agents", "queue", "rpc", "ai", "claude", "codex", "orchestration", "agent-coordination"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: POSIX",
+  "Topic :: Software Development",
+]
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/leo-diehl/agent-lanes"
+Repository = "https://github.com/leo-diehl/agent-lanes"
+Issues = "https://github.com/leo-diehl/agent-lanes/issues"
 
 [project.scripts]
 agent-lanes = "agent_lanes.cli:main"
