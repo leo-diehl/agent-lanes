@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .defaults import DEFAULT_CLAIM_LEASE_SECONDS, DEFAULT_NEXT_TIMEOUT_SECONDS, DEFAULT_WAIT_TIMEOUT_SECONDS
 from .errors import HandoffError, TimeoutError
-from .store import HandoffStore
+from .store import HandoffStore, _validate_task_id
 
 
 class HandoffHTTPServer(ThreadingHTTPServer):
@@ -37,13 +37,13 @@ class HandoffRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"task": task})
                 return
             if parsed.path.startswith("/tasks/") and parsed.path.endswith("/response"):
-                task_id = parsed.path.split("/")[2]
+                task_id = _task_id_from_path(parsed.path)
                 wait_seconds = float(_first(parse_qs(parsed.query), "wait_seconds", str(DEFAULT_WAIT_TIMEOUT_SECONDS)))
                 response = self.server.store.wait_for_response(task_id, timeout=wait_seconds)
                 self._send_json({"response": response})
                 return
             if parsed.path.startswith("/tasks/"):
-                task_id = parsed.path.split("/")[2]
+                task_id = _task_id_from_path(parsed.path)
                 self._send_json({"task": self.server.store.get_task(task_id)})
                 return
             self._send_error(HTTPStatus.NOT_FOUND, "not found")
@@ -80,7 +80,7 @@ class HandoffRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"task": task}, HTTPStatus.CREATED)
                 return
             if parsed.path.startswith("/tasks/") and parsed.path.endswith("/claim"):
-                task_id = parsed.path.split("/")[2]
+                task_id = _task_id_from_path(parsed.path)
                 task = self.server.store.claim_task(
                     task_id,
                     owner=body.get("owner", "worker"),
@@ -89,7 +89,7 @@ class HandoffRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"task": task})
                 return
             if parsed.path.startswith("/tasks/") and parsed.path.endswith("/release"):
-                task_id = parsed.path.split("/")[2]
+                task_id = _task_id_from_path(parsed.path)
                 task = self.server.store.release_claim(
                     task_id,
                     claim_token=body.get("claim_token"),
@@ -98,7 +98,7 @@ class HandoffRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"task": task})
                 return
             if parsed.path.startswith("/tasks/") and parsed.path.endswith("/events"):
-                task_id = parsed.path.split("/")[2]
+                task_id = _task_id_from_path(parsed.path)
                 self.server.store.append_event(
                     task_id,
                     body.get("type", "note"),
@@ -108,7 +108,7 @@ class HandoffRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True})
                 return
             if parsed.path.startswith("/tasks/") and parsed.path.endswith("/response"):
-                task_id = parsed.path.split("/")[2]
+                task_id = _task_id_from_path(parsed.path)
                 response = self.server.store.submit_response(
                     task_id,
                     body=body.get("body", ""),
@@ -177,3 +177,12 @@ def _first(query: dict[str, list[str]], key: str, default: str | None = None) ->
     if not values:
         return default
     return values[0]
+
+
+def _task_id_from_path(path: str) -> str:
+    parts = path.split("/")
+    if len(parts) < 3 or not parts[2]:
+        raise ValueError("task_id is required")
+    task_id = parts[2]
+    _validate_task_id(task_id)
+    return task_id

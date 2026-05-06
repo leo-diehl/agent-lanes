@@ -140,6 +140,9 @@ def main(argv: list[str] | None = None) -> int:
     except TimeoutError as exc:
         print(str(exc), file=sys.stderr)
         return 2
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     except HandoffError as exc:
         print(str(exc), file=sys.stderr)
         return 1

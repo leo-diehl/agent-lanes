@@ -20,6 +20,7 @@ from .timeutil import iso_after, iso_now, parse_iso, timestamp_slug, utc_now
 TASK_TERMINAL_STATES = {"completed", "failed"}
 _DIR_MODE = 0o700
 _FILE_MODE = 0o600
+_TASK_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
 
 
 class HandoffStore:
@@ -107,6 +108,7 @@ class HandoffStore:
         return task
 
     def get_task(self, task_id: str) -> dict[str, Any]:
+        _validate_task_id(task_id)
         task_path = self.task_dir(task_id) / "task.json"
         if not task_path.exists():
             raise StoreError(f"unknown task: {task_id}")
@@ -117,6 +119,7 @@ class HandoffStore:
         return task
 
     def resolve_ref(self, ref: str, config: RuntimeConfig | None = None) -> str:
+        _validate_task_id(ref)
         if (self.task_dir(ref) / "task.json").exists():
             return ref
         raise StoreError(f"unknown task: {ref}")
@@ -165,6 +168,7 @@ class HandoffStore:
         owner: str,
         lease_seconds: float = DEFAULT_CLAIM_LEASE_SECONDS,
     ) -> dict[str, Any]:
+        _validate_task_id(task_id)
         with self.locked():
             task = self.get_task(task_id)
             if task["state"] in TASK_TERMINAL_STATES:
@@ -194,6 +198,7 @@ class HandoffStore:
         claim_token: str,
         lease_seconds: float = DEFAULT_CLAIM_LEASE_SECONDS,
     ) -> dict[str, Any]:
+        _validate_task_id(task_id)
         with self.locked():
             task = self.get_task(task_id)
             if task["state"] != "claimed":
@@ -218,6 +223,7 @@ class HandoffStore:
         clears claim_owner, claim_token, lease_expires_at, claimed_at, and
         appends a 'released' event.
         """
+        _validate_task_id(task_id)
         with self.locked():
             task = self.get_task(task_id)
             if task["state"] != "claimed":
@@ -250,6 +256,7 @@ class HandoffStore:
         message: str,
         data: dict[str, Any] | None = None,
     ) -> None:
+        _validate_task_id(task_id)
         with self.locked():
             self.get_task(task_id)
             self._append_event_unlocked(task_id, event_type, message, data)
@@ -269,6 +276,7 @@ class HandoffStore:
         expect_sha256: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        _validate_task_id(task_id)
         with self.locked():
             task = self.get_task(task_id)
             if task["state"] == "completed":
@@ -327,6 +335,7 @@ class HandoffStore:
         config: RuntimeConfig | None = None,
         timeout: float = DEFAULT_WAIT_TIMEOUT_SECONDS,
     ) -> dict[str, Any]:
+        _validate_task_id(ref)
         task_id = self.resolve_ref(ref, config)
         deadline = time.monotonic() + timeout
         while True:
@@ -344,6 +353,7 @@ class HandoffStore:
             time.sleep(0.05)
 
     def write_response_output(self, task_id: str, response: dict[str, Any]) -> Path:
+        _validate_task_id(task_id)
         task = self.get_task(task_id)
         response_path = Path(task["response_path"])
         workspace_root = Path(task["workspace_root"])
@@ -353,6 +363,7 @@ class HandoffStore:
         return response_path
 
     def task_dir(self, task_id: str) -> Path:
+        _validate_task_id(task_id)
         return self.tasks_dir / task_id
 
     @contextlib.contextmanager
@@ -500,6 +511,13 @@ def _fsync_dir(path: Path) -> None:
 def slug(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip())
     return cleaned.strip("-") or "item"
+
+
+def _validate_task_id(task_id: str) -> None:
+    if not isinstance(task_id, str) or not _TASK_ID_RE.fullmatch(task_id):
+        raise ValueError(f"invalid task_id: {task_id!r}")
+    if "/" in task_id or "\\" in task_id or ".." in task_id:
+        raise ValueError(f"invalid task_id: {task_id!r}")
 
 
 def _require_inside(root: Path, candidate: Path, label: str) -> None:

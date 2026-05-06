@@ -113,3 +113,19 @@ def test_server_release_endpoint_returns_task_to_queued(tmp_path: Path) -> None:
     finally:
         server.shutdown()
         thread.join(timeout=5)
+
+
+def test_server_rejects_invalid_task_id_with_400(tmp_path: Path) -> None:
+    _, server, thread, base, *_ = _start_server(tmp_path)
+    try:
+        try:
+            get_json(f"{base}/tasks/..")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 400
+            body = json.loads(exc.read().decode("utf-8"))
+            assert "invalid task_id" in body["error"]
+        else:
+            raise AssertionError("GET /tasks/.. unexpectedly succeeded")
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)

@@ -266,6 +266,14 @@ def test_wait_for_response_times_out(tmp_path: Path) -> None:
         store.wait_for_response("does-not-exist", config=config, timeout=0.01)
 
 
+def test_store_rejects_path_traversal_task_ids(tmp_path: Path) -> None:
+    _, _, store = make_workspace(tmp_path)
+
+    for task_id in ("..", "../etc/passwd", "foo/bar", "..hidden"):
+        with pytest.raises(ValueError, match="invalid task_id"):
+            store.get_task(task_id)
+
+
 def test_wait_for_response_existing_task_times_out(tmp_path: Path) -> None:
     _, config, store = make_workspace(tmp_path)
     task = make_task(store, config)
