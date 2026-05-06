@@ -525,7 +525,7 @@ def test_cli_init_scaffolds_engine_only(tmp_path: Path, capsys) -> None:
     assert (handoff_dir / "dispatcher.sh").exists()
     assert (handoff_dir / "bin" / "handoff").exists()
     assert (handoff_dir / "state").exists()
-    assert (handoff_dir / "POLLING-MONITOR-PROMPT.md").exists()
+    assert not (handoff_dir / "POLLING-MONITOR-PROMPT.md").exists()
     assert (handoff_dir / "REVIEWER-AGENT-PROMPT.md").exists()
     assert (handoff_dir / "README.md").exists()
 
@@ -791,9 +791,7 @@ def test_workspace_template_smoke_submit_claim_respond_wait(tmp_path: Path) -> N
 
     wrapper = handoff_dir / "bin" / "handoff"
     reviewer_prompt = handoff_dir / "REVIEWER-AGENT-PROMPT.md"
-    monitor_prompt = handoff_dir / "POLLING-MONITOR-PROMPT.md"
     assert reviewer_prompt.exists()
-    assert monitor_prompt.exists()
 
     env = os.environ.copy()
     env["AGENT_LANES_RUNTIME"] = str(runtime_root)

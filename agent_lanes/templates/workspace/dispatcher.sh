@@ -15,6 +15,12 @@
 #   VENDOR      - claude or codex
 #   QUEUE_ROOT  - absolute path to the shared queue state directory
 #
+# Vendor scope: the bundled mapping covers Claude and Codex CLIs. To extend
+# to other vendors, fork this script and adjust the `model_flag()` and
+# `effort_flag()` functions; the engine treats `required_vendor` as an
+# opaque string at the protocol level. The hard-fail on unknown VENDOR
+# below is bundled-dispatcher behavior, not a protocol-level restriction.
+#
 # Optional environment:
 #   CONFIG              - handoff.yaml path (default: ${QUEUE_ROOT%/state}/handoff.yaml)
 #   LANE                - lane to poll (default: default)

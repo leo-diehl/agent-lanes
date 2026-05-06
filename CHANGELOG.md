@@ -21,6 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   instead of `_dispatchers/`. The leading underscore was an unconventional
   marker for a directory the user is expected to edit.
 
+### Removed
+- `agent-lanes init` no longer scaffolds `POLLING-MONITOR-PROMPT.md`. The
+  pool template's `POLLING-CHAT-PROMPT.md` is the canonical Mode A artifact;
+  the per-project workspace did not need a second polling prompt.
+
+### Documented
+- `dispatcher.sh` header now explains that the bundled vendor mapping covers
+  Claude and Codex by convention only; the protocol treats `required_vendor`
+  as an opaque string. Forks targeting other vendors should adjust
+  `model_flag()` and `effort_flag()`.
+
 ### Documented
 - `status --lane <name>` and `status --active-only` are now described in
   CONTRACT.md alongside `--all`.

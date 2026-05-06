@@ -12,7 +12,6 @@ state. **It contains no task definitions.**
   task to a fresh headless-agent invocation).
 - `bin/handoff` — CLI wrapper that routes to the agent-lanes runtime.
 - `state/` — transient queue state. Keep local; do not commit task content.
-- `POLLING-MONITOR-PROMPT.md` — Mode A prompt for a lightweight polling agent.
 - `REVIEWER-AGENT-PROMPT.md` — Mode A prompt for a reviewer agent.
 
 Durable response outputs are written by the waiting orchestrator to whatever
