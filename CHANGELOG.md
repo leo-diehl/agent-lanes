@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `docs/prompt-pack-guide.md` — opinionated convention for organizing multi-prompt packs that use agent-lanes underneath. Optional; not protocol.
+
 ### Changed
 - Renamed the `task.json.checkpoint_id` field to `correlation_id`. Older
   on-disk task records are read transparently via a one-minor-version

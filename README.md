@@ -267,6 +267,11 @@ To inspect without claiming:
   shared-queue topology (§ 17).
 - [`CHANGELOG.md`](CHANGELOG.md) — release notes.
 
+## Opinionated workflow guide (optional)
+
+If you want a higher-level convention for organizing multi-prompt "packs" that use agent-lanes underneath — folder shape, prompt roles, review discipline, naming — see [`docs/prompt-pack-guide.md`](docs/prompt-pack-guide.md).
+It's the format the project that drove agent-lanes was originally built for. The protocol does not require it; adopt or adapt as needed.
+
 ## Language neutrality
 
 The reference implementation is Python (stdlib + PyYAML). The protocol itself is
