@@ -5,10 +5,10 @@ This directory is the workspace-level queue for `{{WORKSPACE_ID}}`.
 The queue owns:
 
 - `handoff.yaml` - the engine config for the shared pool.
-- `state/` - task and response state for all racks using this pool.
+- `state/` - task and response state for all projects using this pool.
 - lane `default` - the shared subscription lane.
 
-Racks point their local `handoff/handoff.yaml` at this queue by setting
+Projects point their local `handoff/handoff.yaml` at this queue by setting
 `queue_root` to the absolute path of this `state/` directory. Dispatchers connect
 to this config and store, then route tasks by metadata:
 

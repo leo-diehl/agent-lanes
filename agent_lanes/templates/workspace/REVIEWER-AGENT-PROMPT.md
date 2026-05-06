@@ -20,7 +20,7 @@ Work from this workspace directory:
 
 Use this lane:
 
-claude-review
+<LANE_NAME>
 
 Your job is to pick up review requests from the orchestrator, review the
 referenced artifact, and respond through the local handoff mechanism. The
@@ -30,7 +30,7 @@ implementation files unless the task explicitly asks you to.
 Role boundary:
 
 - The orchestrator runs `submit` and `wait`.
-- A polling monitor (if present) runs `wait --lane claude-review --json` and
+- A polling monitor (if present) runs `wait --lane <LANE_NAME> --json` and
   does not claim.
 - You, the reviewer, claim exactly one concrete task after seeing task JSON,
   review it, respond, and either re-arm the lane or stop based on the operating
@@ -58,7 +58,7 @@ directly to claiming the returned `task.id`.
 If no polling monitor is available, wait for the next queued task yourself:
 
 ```bash
-./handoff/bin/handoff wait --lane claude-review --json
+./handoff/bin/handoff wait --lane <LANE_NAME> --json
 ```
 
 This command long-polls for up to six hours and prints keepalive messages while
@@ -97,7 +97,7 @@ Submit the response. The CLI verdict tokens are exactly:
 ./handoff/bin/handoff respond <task-id> --claim-token <claim-token> --reviewer reviewer --file <path> --verdict <verdict> --blocking-count <n> --nonblocking-count <n> --expect-sha256 <request_sha256> --json
 ```
 
-If you are in standby mode, schedule the next `wait --lane claude-review --json --quiet`
+If you are in standby mode, schedule the next `wait --lane <LANE_NAME> --json --quiet`
 through the harness's background/monitor mechanism after a short optimistic delay.
 If you are in one-shot mode, stop after reporting the verdict.
 

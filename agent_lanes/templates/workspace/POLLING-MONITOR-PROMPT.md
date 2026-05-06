@@ -78,5 +78,5 @@ Never modify task state.
 
 ## When to switch to Mode B
 
-If this chat will handle more than ~10 tasks, recommend switching to the shell
-dispatcher pattern (`bash handoff/dispatcher.sh`) to avoid context accumulation.
+If the chat starts feeling slow or context-bound, switch to Mode B (bash
+dispatcher).

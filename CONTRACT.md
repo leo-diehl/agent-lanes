@@ -71,7 +71,7 @@ Accepted fields:
 - `workspace_root` (required) — path to the project root, relative to the
   `handoff.yaml` directory or absolute.
 - `queue_root` — directory where queue state is written; defaults to `state`.
-  Point multiple racks at the same shared absolute queue path to run a
+  Point multiple projects at the same shared absolute queue path to run a
   workspace-level dispatcher pool.
 - `lanes` — mapping of lane names to optional metadata.
 
@@ -142,7 +142,7 @@ and `claimed_at`. `release` clears these and returns the task to `queued`.
 
 - `id`
 - `workspace_id`
-- `checkpoint_id` (free-form correlation id; named for historical reasons)
+- `checkpoint_id` (free-form correlation id)
 - `source_agent`
 - `lane`
 - `workspace_root`
@@ -236,7 +236,7 @@ defaults to the task-file basename (if `--task` is supplied) or the lane name.
 
 `init --queue-root <path>` scaffolds the engine config with `queue_root` pointing
 at an existing or future queue state directory. This is commonly used to point
-many racks at one workspace-level queue.
+many projects at one workspace-level queue.
 
 `--verdict` on `respond` is optional. The verdict-conditional logic
 (`--blocking-count > 0` requires `needs-revision`) only fires when verdict is set.
@@ -310,6 +310,10 @@ Canonical convention keys:
 - `thread_id` — correlation id for multi-turn threads.
 - `parent_task_id` — for thread reconstruction.
 
+Note: `xhigh` and `gpt-5-3-spark` are conventions specific to the bundled
+dispatcher's vendor mapping; protocol-wise these are opaque strings. Customize
+the dispatcher script if you need different aliases for your CLI.
+
 `model_class` is the preferred replacement for older `model_hint` conventions.
 `effort` is the preferred replacement for older `min_effort` conventions.
 Dispatchers may accept the older names for compatibility, but new task definitions
@@ -331,20 +335,22 @@ pattern, `required_vendor` routes, while `model_class`, `effort`, and
 
 ## 16. Dispatcher pattern
 
-Two modes are supported.
+Two modes are supported. Pick based on your environment; neither is universally
+better.
 
-**Mode A — live polling chat.** A long-running interactive agent keeps
-`wait --lane <lane> --json` armed. When a task arrives, the operator (or the agent
-itself) claims, reviews, and responds in-context. Useful when per-task operator
-judgment justifies the context cost. Context accumulates across tasks.
+**Mode A — live polling chat (chat-as-dispatcher).** A long-running interactive
+agent keeps `wait --lane <lane> --json` armed. When a task arrives, the operator
+(or the agent itself) claims, reviews, and responds in-context. Best when you
+have a chat subscription and want to see what the dispatcher does. Context
+accumulates across tasks; restart the chat periodically.
 
-**Mode B — stateless shell dispatcher (recommended for sustainable polling).** A
-shell loop polls the lane and pipes each task to a fresh headless-agent invocation.
-The dispatcher itself is task-agnostic; each task carries its own prompt. Context
-does not accumulate. This is the default; see
-`agent_lanes/templates/workspace/dispatcher.sh`.
+**Mode B — stateless shell dispatcher (bash dispatcher).** A shell loop polls the
+lane and pipes each task to a fresh headless-agent invocation. The dispatcher
+itself is task-agnostic; each task carries its own prompt. Context does not
+accumulate. Best for unattended use or environments without a chat client; each
+task incurs API token cost. See `agent_lanes/templates/workspace/dispatcher.sh`.
 
-**Vendor-routed dispatchers (recommended for multi-vendor pools).** Run one
+**Vendor-routed dispatchers (for multi-vendor pools).** Run one
 long-running dispatcher per vendor (for example, `VENDOR=claude` and
 `VENDOR=codex`), all subscribed to the same lane (typically `default`) on the same
 queue. Each dispatcher inspects the task's `required_vendor` metadata. If
@@ -364,10 +370,10 @@ metadata-driven pattern.
 
 ## 17. Shared-queue topology (workspace-level pools)
 
-A workspace-level pool uses one queue for many projects or racks. The shared queue
+A workspace-level pool uses one queue for many projects. The shared queue
 has its own engine config, such as `~/workspace/.agent-lanes-queue/handoff.yaml`,
 and queue state directory, such as `~/workspace/.agent-lanes-queue/state/`. Each
-rack's `handoff/handoff.yaml` sets `queue_root` to that shared state path.
+project's `handoff/handoff.yaml` sets `queue_root` to that shared state path.
 
 Use `agent-lanes init-pool <workspace>` to scaffold the shared queue and
 dispatcher artifacts:
@@ -381,23 +387,23 @@ This creates `~/workspace/.agent-lanes-queue/` plus
 polling chat prompt. The bash dispatcher and the polling chat prompt are
 alternative consumers of the same queue and can run at the same time.
 
-Use `agent-lanes init --queue-root <path>` to scaffold a rack already pointed at a
-shared queue:
+Use `agent-lanes init --queue-root <path>` to scaffold a project already pointed
+at a shared queue:
 
 ```bash
 agent-lanes init --queue-root ~/workspace/.agent-lanes-queue/state
 ```
 
-Dispatchers then poll the shared queue rather than a rack-local queue. Multiple
+Dispatchers then poll the shared queue rather than a project-local queue. Multiple
 projects pull from the same dispatcher capacity, which is useful for personal
-multi-rack workflows where one operator wants shared infrastructure across many
+multi-project workflows where one operator wants shared infrastructure across many
 working directories. Revisit this topology for team usage, where ownership,
 capacity, and isolation usually need a stricter contract.
 
 Lane definitions live on the workspace-level engine config that owns the shared
-queue. Rack-level configs inherit those lane definitions implicitly by pointing
+queue. Project-level configs inherit those lane definitions implicitly by pointing
 `queue_root` at the shared queue. Treat lanes as bound to the queue, not to an
-individual rack.
+individual project.
 
 ## 18. Task threading pattern
 

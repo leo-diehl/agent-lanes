@@ -80,8 +80,8 @@ While waiting, they consume zero tokens. If the command times out, run it again.
 ```
 
 `status --rack --json` is the first diagnostic command. It summarizes queued,
-claimed, completed, failed, missing-response, and stale-lease tasks and includes
-next-action guidance.
+claimed, completed, failed, missing-response, and stale-lease tasks for the
+project and includes next-action guidance.
 
 ## Runtime lookup
 

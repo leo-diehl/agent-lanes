@@ -4,10 +4,24 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/leo-diehl/agent-lanes/actions/workflows/test.yml/badge.svg)](https://github.com/leo-diehl/agent-lanes/actions/workflows/test.yml)
 
-A local, file-backed, structured-RPC queue for AI coding agents. agent-lanes lets one
-agent submit a task and another claim, work, and respond — over a shared filesystem
-queue, no daemon required. Cross-vendor by design: any agent that can run shell
-commands can participate.
+**agent-lanes** lets one AI coding agent hand work to another over a shared folder.
+Submit a task, the other agent picks it up, replies, and you read the response —
+like a tiny RPC queue, but the queue is just JSON files on disk. Useful when an
+orchestrator agent wants a code review, a Q&A from a specialist, or a parallel
+sub-task from a different model.
+
+## Glossary
+
+- **lane** — a named subscription stream (e.g. `default`, `code-review`).
+- **task** — one unit of work submitted to a lane.
+- **dispatcher** — a long-running process that watches a lane, claims matching
+  tasks, and runs them. Can be a shell script (Mode B) or a chat (Mode A).
+- **orchestrator** — the agent that submits tasks and waits for responses.
+- **workspace** — a project directory or pool of project directories sharing one
+  queue.
+- **sub-agent** — a fresh agent the dispatcher spawns to do the actual work for
+  one task.
+- **vendor** — the LLM provider behind a dispatcher (e.g. `claude`, `codex`).
 
 ## Install
 
@@ -27,6 +41,10 @@ pip install -e .
 Requires Python 3.11+ on macOS or Linux. POSIX-only — Windows users should run via
 WSL2.
 
+agent-lanes is single-host. The lock model assumes all participating processes
+run on one machine and a local POSIX filesystem (`fcntl.flock`). Networked
+filesystems (NFS, SMB) and multi-host setups are not supported.
+
 ## Quickstart
 
 Set up a workspace pool, attach a long-running dispatcher chat, submit a task. Five
@@ -42,8 +60,8 @@ Creates `~/myworkspace/.agent-lanes-queue/` (the shared queue) and
 prompt).
 
 ```bash
-# 2. Scaffold a rack pointed at the pool
-mkdir ~/myworkspace/example-rack && cd ~/myworkspace/example-rack
+# 2. Scaffold a project pointed at the pool
+mkdir ~/myworkspace/example-project && cd ~/myworkspace/example-project
 agent-lanes init --queue-root ~/myworkspace/.agent-lanes-queue/state
 mkdir tasks
 ```
@@ -81,15 +99,19 @@ TASK_ID=$(./handoff/bin/handoff submit \
 The polling chat picks up the task, the sub-agent does the review, the response
 lands in `outputs/01-review.md`, and the wait unblocks.
 
-**Mode A (chat-as-dispatcher) is the recommended consumer** because it uses your
-chat subscription rather than per-token API billing. The polling chat is
-vendor-bound only; model and effort come from each task's metadata, so the same
-chat handles tasks at any model/effort the queue receives.
+### Two dispatcher modes
 
-### Alternative: Mode B (bash dispatcher)
+**Mode A (chat-as-dispatcher).** The dispatcher runs inside a long-running chat
+(Claude Code or Codex), using your chat subscription rather than the headless
+API. Best when you have a chat subscription and want to see what the dispatcher
+does. Context grows over many tasks; restart the chat periodically. The polling
+chat is vendor-bound only; model and effort come from each task's metadata, so
+the same chat handles tasks at any model/effort the queue receives.
 
-For headless CLI environments where per-token API billing is acceptable, run the
-bundled bash wrappers in any terminal:
+**Mode B (bash dispatcher).** The dispatcher is a long-running shell loop calling
+a headless agent CLI (`claude -p`, `codex exec`) for each task. Best for
+unattended use or environments without a chat client. Each task incurs API token
+cost.
 
 ```bash
 bash ~/myworkspace/_dispatchers/claude.sh   # one terminal
@@ -123,11 +145,11 @@ routes tasks by lane; tasks reference lanes by name.
 
 Two scaffolding shapes:
 
-- **`agent-lanes init`** scaffolds a single rack with its own per-rack queue at
-  `handoff/state/`. Use this for one-off projects.
+- **`agent-lanes init`** scaffolds a single project with its own per-project queue
+  at `handoff/state/`. Use this for one-off projects.
 - **`agent-lanes init-pool <workspace>`** scaffolds a workspace-level shared queue
-  plus per-vendor dispatcher artifacts. Use this when one workspace has many racks
-  that should share a single dispatcher pool. Each rack then runs
+  plus per-vendor dispatcher artifacts. Use this when one workspace has many
+  projects that should share a single dispatcher pool. Each project then runs
   `agent-lanes init --queue-root <abs-path-to-shared-state>` to point at the
   shared queue instead of creating its own.
 
@@ -196,7 +218,7 @@ on each. Useful for parallel reviewers or any embarrassingly-parallel work.
 metadata (`thread_id`, `parent_task_id`) lets dispatchers reconstruct
 conversational continuity across iterations.
 
-**Vendor-routed pool.** One workspace, many racks, one queue. Mode A and Mode B
+**Vendor-routed pool.** One workspace, many projects, one queue. Mode A and Mode B
 dispatchers are interchangeable consumers; both subscribe to the queue's `default`
 lane and route per task metadata.
 
@@ -231,9 +253,6 @@ To inspect without claiming:
   ./handoff/bin/handoff list --lane <lane> --json
   ./handoff/bin/handoff status <task-id> --json
   ./handoff/bin/handoff status --rack --json
-
-Apply every reviewer suggestion that makes sense in scope, including non-blocking
-ones. Skip a suggestion only with a concrete reason.
 ```
 
 ## Reference
@@ -260,6 +279,21 @@ agent-lanes is local-first and protocol-light. Compared to alternatives:
   discovery. agent-lanes is the local equivalent: same shape, no network.
 - **agentpost** and similar frameworks bundle orchestration. agent-lanes ships
   only the queue primitives — your orchestrator stays a few shell commands away.
+
+## Troubleshooting
+
+- **`command not found: agent-lanes`** — pip install put it somewhere not on
+  PATH; try `python -m agent_lanes` or check `pip show -f agent-lanes` to find
+  the binary.
+- **`jq: command not found`** — the bundled bash dispatcher and examples use
+  `jq`; install via your package manager (e.g. `brew install jq`,
+  `apt install jq`).
+- **`wait` returns nothing for hours** — the long-poll runs for 6 hours by
+  default; pass `--timeout <seconds>` for shorter polls.
+- **`claim failed: stale request_sha256`** — the request file changed after
+  submit; re-submit or re-stage the artifact.
+- **`pip install` fails with "externally-managed-environment"** — your Python
+  is PEP 668 managed; use a venv or pass `--break-system-packages` knowingly.
 
 ## Status
 
