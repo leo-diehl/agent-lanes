@@ -127,6 +127,23 @@ Each wrapper long-polls the queue, claims tasks for its vendor, and spawns a fre
 headless agent (`claude -p` / `codex exec`) per task. Both modes consume the same
 queue and can run simultaneously.
 
+## Don't want to scaffold by hand?
+
+If the Quickstart feels like a lot of moving pieces, point your agent at the
+opinionated workflow guide and let it scaffold a multi-prompt "pack" for you:
+
+```
+Create a prompt pack following docs/prompt-pack-guide.md for: <your task>.
+```
+
+Paste that into a Claude Code or Codex chat. The agent reads
+[`docs/prompt-pack-guide.md`](docs/prompt-pack-guide.md), runs
+`agent-lanes init` (or `init-pool`) for you, writes the executor / reviewer
+prompts, drops `tasks/<id>.yaml` files with the right metadata routing, and
+hands you back a single orchestrator prompt to paste into your driver chat.
+
+The guide is convention, not protocol — adapt or ignore as you like.
+
 ## Try it
 
 The `examples/two-terminal/` directory has a 30-second demo: one shell submits a
@@ -268,9 +285,6 @@ To inspect without claiming:
   shared-queue topology (§ 17).
 - [`CHANGELOG.md`](CHANGELOG.md) — release notes.
 
-## Opinionated workflow guide (optional)
-
-If you want a higher-level convention for organizing multi-prompt "packs" that use agent-lanes underneath — folder shape, prompt roles, review discipline, naming — see [`docs/prompt-pack-guide.md`](docs/prompt-pack-guide.md).
 It's the format the project that drove agent-lanes was originally built for. The protocol does not require it; adopt or adapt as needed.
 
 ## Language neutrality
