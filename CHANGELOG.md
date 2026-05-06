@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-05-06
+
+Hardens the Mode A polling chat to give it the same operational visibility
+and shorter-lease guarantees the Mode B bash dispatcher already has.
+Motivated by an observed failure mode in v0.1.0 where a chat dispatcher
+claimed a task and went silent before spawning the sub-agent, holding the
+default 2-hour lease with zero progress events.
+
+### Changed
+
+- Polling chat prompt (`agent_lanes/templates/pool/dispatchers/POLLING-CHAT-PROMPT.md`)
+  now claims tasks with `--lease-seconds 900` (15 min) instead of the
+  default 7200 (2 h). A stuck or distracted chat now blocks the task for at
+  most 15 minutes before another dispatcher can claim it.
+- Polling chat prompt now emits structured events at each transition:
+  `dispatcher_started` immediately after claim, `headless_started` right
+  before sub-agent invocation, and `headless_completed` /
+  `headless_failed` after respond. Mirrors the bash dispatcher's event
+  flow; lets `wait` diagnostics show real progress on claimed tasks.
+- Polling chat prompt now requires explicit `release` on any failure to
+  proceed. Silent abandonment (claim with no progress and no respond) is
+  no longer the documented fallback; a `release --reason "..."` is.
+
+### Notes
+
+- No breaking protocol changes. v0.1.0 polling chats continue to work; the
+  new prompt is just stricter about visibility and recovery. Operators
+  with existing scaffolded workspaces can pull the new
+  `POLLING-CHAT-PROMPT.md` by re-running `agent-lanes init-pool` against
+  a temp dir and copying, or by manually applying the diff.
+
 ## [0.1.0] - 2026-05-06
 
 Initial public release.

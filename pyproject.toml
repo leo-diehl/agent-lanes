@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-lanes"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local file-backed coordination queue for AI coding agents"
 readme = "README.md"
 license = {text = "MIT"}

@@ -68,22 +68,52 @@ Wait 2 seconds, then re-arm step 1.
 
 Do not check `model_class` or `effort` here. You only filter on vendor.
 
-### 3. Claim
+### 3. Claim and announce
 
 ```bash
 agent-lanes --config "$CONFIG" --store "$STORE" \
   claim <task-id> \
   --owner "dispatcher-<vendor>-<short-rand>" \
-  --lease-seconds 7200 \
+  --lease-seconds 900 \
   --json | jq -r '.claim_token'
 ```
 
 Save the token as `CLAIM_TOKEN`. If claim fails because another dispatcher won
 the race, log once and re-arm step 1.
 
+The 900-second (15-minute) lease caps how long this task is held if you go
+silent. If your sub-agent legitimately needs longer, that's fine — your lease
+will expire while the sub-agent is still working, but you can still respond
+when it finishes (the engine accepts a final response from the original
+claim_token even after lease expiry, as long as no other worker has claimed
+the task in the interim). The shorter default mainly limits the damage from
+chats that get distracted, lose context, or fail to spawn the sub-agent at
+all.
+
+Immediately after a successful claim, write a `dispatcher_started` event so
+operators watching `wait` can see the chat is still alive:
+
+```bash
+agent-lanes --config "$CONFIG" --store "$STORE" \
+  event <task-id> \
+  --type dispatcher_started \
+  --message "polling chat dispatcher claimed; preparing to spawn sub-agent" \
+  --data "owner=<your-owner-string>" \
+  --data "vendor=<your-vendor>" \
+  --json >/dev/null
+```
+
 ### 4. Spawn a sub-agent - pass IDs, not content
 
-Use your environment's sub-agent, Task, or Agent spawning tool. Pass:
+Right before invoking the sub-agent, emit a `headless_started` event:
+
+```bash
+agent-lanes --config "$CONFIG" --store "$STORE" \
+  event <task-id> --type headless_started \
+  --message "sub-agent invocation starting" --json >/dev/null
+```
+
+Then use your environment's sub-agent, Task, or Agent spawning tool. Pass:
 
 - subagent_type: generic or general-purpose.
 - model:
@@ -163,11 +193,25 @@ If the sub-agent failed catastrophically and produced no usable result:
 
 ```bash
 agent-lanes --config "$CONFIG" --store "$STORE" \
+  event <task-id> --type headless_failed \
+  --message "sub-agent invocation failed; responding with status=failed" \
+  --json >/dev/null
+
+agent-lanes --config "$CONFIG" --store "$STORE" \
   respond <task-id> \
   --claim-token "$CLAIM_TOKEN" \
   --status failed \
   --body "<one-paragraph reason>" \
   --json
+```
+
+After a successful respond (any status), emit a final progress event:
+
+```bash
+agent-lanes --config "$CONFIG" --store "$STORE" \
+  event <task-id> --type headless_completed \
+  --message "sub-agent invocation completed; response submitted" \
+  --json >/dev/null
 ```
 
 Clean up:
@@ -190,6 +234,18 @@ this iteration. Return to step 1.
   it repeatedly into your own context.
 - If your lease expires before the sub-agent finishes, the task may reopen for
   another dispatcher. Do not respond with an expired token; continue from step 1.
+- **If you cannot proceed for any reason** — sub-agent tool unavailable, the
+  environment is broken, you've decided to give up on this task, you're about
+  to be killed by an outside actor, anything — call `release` immediately so
+  another dispatcher can pick the task up:
+  ```bash
+  agent-lanes --config "$CONFIG" --store "$STORE" \
+    release <task-id> --claim-token "$CLAIM_TOKEN" \
+    --reason "<one-line explanation>" --json
+  ```
+  Do not silently abandon a claim. A claim with no progress events for the
+  full lease duration looks identical to a stuck dispatcher — a release with
+  a reason is faster recovery and clearer signal.
 
 ## Stop
 
