@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - File-backed structured-RPC queue with lane routing and lease-based claim/respond.
 - Vendor-routed Mode B dispatcher template (`agent_lanes/templates/workspace/dispatcher.sh`) that long-polls a lane, inspects task metadata, claims matching tasks, and spawns a fresh headless agent at the requested model and effort.
 - Mode A polling chat prompt template (`agent_lanes/templates/pool/dispatchers/POLLING-CHAT-PROMPT.md`) that turns any chat into a long-running dispatcher that spawns sub-agents per task.
-- `agent-lanes init` scaffolds a per-rack engine; `--queue-root <path>` points it at a shared queue.
+- `agent-lanes init` scaffolds a per-project engine; `--queue-root <path>` points it at a shared queue.
 - `agent-lanes init-pool <path>` scaffolds a workspace-level shared queue plus per-vendor dispatcher wrappers and the polling chat prompt.
 - Free-form `metadata: {}` on tasks and responses; convention keys (`required_vendor`, `model_class`, `effort`, `thread_id`, `parent_task_id`, etc.) are documented but not enforced.
 - `release` command for probe-then-decline: returns a claimed task to `queued` without responding.
