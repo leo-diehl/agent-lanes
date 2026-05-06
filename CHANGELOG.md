@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 - `docs/prompt-pack-guide.md` — opinionated convention for organizing multi-prompt packs that use agent-lanes underneath. Optional; not protocol.
 
+### Security
+- `prompt_file` in task YAML files is now constrained to `workspace_root` (was previously read without containment check).
+- Queue state directories and files are created with restrictive permissions (0700 / 0600).
+- `task_id` values are validated against a regex before being joined into filesystem paths, preventing traversal via store / CLI / HTTP routes.
+- `init-pool` shell-escapes paths substituted into generated wrapper scripts.
+- `agent-lanes serve` warns when binding to a non-loopback host (no auth layer).
+
 ### Changed
 - Renamed the `task.json.checkpoint_id` field to `correlation_id`. Older
   on-disk task records are read transparently via a one-minor-version
@@ -23,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `agent-lanes init-pool` scaffolds the dispatcher folder as `dispatchers/`
   instead of `_dispatchers/`. The leading underscore was an unconventional
   marker for a directory the user is expected to edit.
+- `init-pool --json` output structure: `claude_dispatcher` / `codex_dispatcher` keys replaced with a `dispatchers` array of `{vendor, wrapper}` objects. Pre-1.0 breaking change for anyone scripting against the old keys.
+- `worktree_path` documented as implementation context, not a security boundary; bundled prompts updated to reflect this.
+- `HEADLESS_AGENT_CMD` documented as trusted shell code (current dispatcher uses `eval`).
+- `CONTRACT.md` § 14 reframed from "canonical" to "bundled dispatcher convention" — protocol only requires `metadata` to be a dict.
+- `README.md` clarifies that `claude` and `codex` are bundled-dispatcher conventions, not the only allowed vendor strings.
 
 ### Removed
 - `agent-lanes init` no longer scaffolds `POLLING-MONITOR-PROMPT.md`. The
