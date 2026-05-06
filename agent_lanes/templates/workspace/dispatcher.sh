@@ -29,6 +29,14 @@
 #                         claude: claude -p ""
 #                         codex:  codex exec --prompt-stdin
 #                         Override when your local CLI needs different flags.
+#                         HEADLESS_AGENT_CMD is trusted shell code. It is
+#                         concatenated with model/effort flags built from a
+#                         fixed lookup table — task metadata cannot inject
+#                         through current mappings — and passed to eval. Do not
+#                         interpolate untrusted task data into HEADLESS_AGENT_CMD.
+#                         To extend the dispatcher to a vendor whose CLI takes
+#                         paths or args from the task, fork the script and use
+#                         an argv array invocation instead of eval.
 #   LEASE_SECONDS       - claim lease duration (default: 7200)
 #   WAIT_TIMEOUT        - long-poll timeout (default: 21600)
 #

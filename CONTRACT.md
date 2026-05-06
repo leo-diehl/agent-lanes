@@ -106,6 +106,15 @@ Accepted fields (all optional unless noted):
 - `worktree_path` — optional repository worktree.
 - `branch` — expected branch name.
 
+**`worktree_path` and `expected_branch` are passed through unchanged.** They are
+persisted on the task and presented to the dispatcher and any spawned sub-agent
+as implementation context. **Neither is a security boundary.** A submitter can
+point `worktree_path` at any local path; the engine does not constrain it.
+Dispatchers and sub-agents should treat `worktree_path` as a hint about where
+the implementation lives, not as an authorization grant — apply the dispatcher's
+own scope discipline (a workspace-aware shell, a hardcoded write-allowlist, etc.)
+rather than trusting whatever the task hands them.
+
 Per-execution overrides are supplied via CLI flags at submit time. The task file
 is the default, the CLI is the override. Unknown keys in task files are warned
 about and ignored (forward compat).
