@@ -225,7 +225,7 @@ respond <task-id> --claim-token <token> [--file <path>|-] [--body <text>]
 release <task-id> --claim-token <token> [--reason <text>] [--json]
 list [--lane <lane>] [--active-only]
 status <task-id>
-status --rack
+status --all [--lane <lane>] [--active-only]
 serve [--host HOST] [--port PORT]
 self-test
 ```
@@ -247,6 +247,18 @@ many projects at one workspace-level queue.
 (`--blocking-count > 0` requires `needs-revision`) only fires when verdict is set.
 
 `--metadata key=value` is repeatable on both `submit` and `respond`.
+
+`status` accepts these flags for queue-wide summaries:
+
+- `--all` — summarize every task in the queue.
+- `--lane <name>` — limit the summary to one lane (use with `--all`).
+- `--active-only` — limit the summary to non-completed tasks (queued and
+  claimed).
+- positional `task_id` — without `--all`, return the detailed status of one
+  task.
+
+`--rack` is a deprecated alias for `--all`; it still works but prints a
+deprecation warning to stderr and will be removed in v0.2.
 
 Long-poll defaults:
 

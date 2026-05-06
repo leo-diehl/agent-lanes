@@ -76,10 +76,10 @@ While waiting, they consume zero tokens. If the command times out, run it again.
 ```bash
 ./handoff/bin/handoff list --lane <lane> --json
 ./handoff/bin/handoff status <task-id> --json
-./handoff/bin/handoff status --rack --json
+./handoff/bin/handoff status --all --json
 ```
 
-`status --rack --json` is the first diagnostic command. It summarizes queued,
+`status --all --json` is the first diagnostic command. It summarizes queued,
 claimed, completed, failed, missing-response, and stale-lease tasks for the
 project and includes next-action guidance.
 

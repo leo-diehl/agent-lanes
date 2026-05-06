@@ -252,7 +252,7 @@ To inspect without claiming:
 
   ./handoff/bin/handoff list --lane <lane> --json
   ./handoff/bin/handoff status <task-id> --json
-  ./handoff/bin/handoff status --rack --json
+  ./handoff/bin/handoff status --all --json
 ```
 
 ## Reference

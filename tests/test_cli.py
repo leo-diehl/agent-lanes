@@ -201,7 +201,7 @@ def test_cli_respond_metadata_recorded(tmp_path: Path, capsys) -> None:
     assert submitted["response"]["metadata"] == {"model_used": "claude-fake", "tokens_in": "42"}
 
 
-def test_cli_list_and_status_rack_do_not_require_store_inspection(tmp_path: Path, capsys) -> None:
+def test_cli_list_and_status_all_do_not_require_store_inspection(tmp_path: Path, capsys) -> None:
     workspace, config_path, _ = make_workspace(tmp_path)
     task_id = submit_inline(config_path, workspace, capsys)
 
@@ -210,11 +210,25 @@ def test_cli_list_and_status_rack_do_not_require_store_inspection(tmp_path: Path
     assert listed["count"] == 1
     assert listed["tasks"][0]["id"] == task_id
 
-    assert main(["--config", str(config_path), "status", "--rack", "--json"]) == 0
+    assert main(["--config", str(config_path), "status", "--all", "--json"]) == 0
     status = json.loads(capsys.readouterr().out)
     assert status["count"] == 1
     assert status["summary"]["queued"] == 1
     assert "next_action" in status["tasks"][0]
+
+
+def test_cli_status_rack_is_deprecated_alias_with_warning(tmp_path: Path, capsys) -> None:
+    workspace, config_path, _ = make_workspace(tmp_path)
+    submit_inline(config_path, workspace, capsys)
+
+    assert main(["--config", str(config_path), "status", "--rack", "--json"]) == 0
+    captured = capsys.readouterr()
+    status = json.loads(captured.out)
+    assert status["status"] == "ok"
+    assert status["count"] == 1
+    assert "[deprecated]" in captured.err
+    assert "--rack" in captured.err
+    assert "--all" in captured.err
 
 
 def test_cli_full_role_choreography_has_guidance(tmp_path: Path, capsys) -> None:
@@ -559,7 +573,7 @@ def test_cli_init_queue_root_relative_passthrough(tmp_path: Path, capsys) -> Non
     assert f"queue_root: {queue_root}" in yaml_text
 
 
-def test_cli_status_rack_allows_shared_queue_outside_workspace(tmp_path: Path, capsys) -> None:
+def test_cli_status_all_allows_shared_queue_outside_workspace(tmp_path: Path, capsys) -> None:
     rack = tmp_path / "rack"
     handoff = rack / "handoff"
     shared_state = tmp_path / "shared-queue" / "state"
@@ -582,7 +596,7 @@ lanes:
     assert config.workspace_root == rack.resolve()
     assert config.store_root == shared_state.resolve()
 
-    assert main(["--config", str(config_path), "--store", str(shared_state), "status", "--rack", "--json"]) == 0
+    assert main(["--config", str(config_path), "--store", str(shared_state), "status", "--all", "--json"]) == 0
     status = json.loads(capsys.readouterr().out)
     assert status["status"] == "ok"
     assert status["count"] == 0

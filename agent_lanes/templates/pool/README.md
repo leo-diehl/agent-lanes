@@ -22,7 +22,7 @@ Inspect the queue with:
 agent-lanes \
   --config <absolute-path>/handoff.yaml \
   --store <absolute-path>/state \
-  status --rack --json
+  status --all --json
 ```
 
 The scaffolded dispatcher wrappers live in the sibling `_dispatchers/`

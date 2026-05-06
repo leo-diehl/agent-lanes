@@ -113,12 +113,19 @@ def main(argv: list[str] | None = None) -> int:
             _print_response(response, task, store, args.json)
             return 0
         if args.command == "status":
-            if args.rack:
+            # --rack is a deprecated alias for --all (see build_parser).
+            if getattr(args, "rack", False) and not args.all:
+                print(
+                    "[deprecated] --rack is renamed to --all; --rack will be removed in v0.2.",
+                    file=sys.stderr,
+                )
+                args.all = True
+            if args.all:
                 tasks = store.list_tasks(lane=args.lane, include_completed=not args.active_only)
                 _print(_rack_status_payload(tasks, store), args.json)
                 return 0
             if not args.task_id:
-                raise HandoffError("status requires a task id or --rack")
+                raise HandoffError("status requires a task id or --all")
             task_id = store.resolve_ref(args.task_id, config)
             _print({"status": "ok", "task": _task_status_view(store.get_task(task_id), store)}, args.json)
             return 0
@@ -276,11 +283,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # status/list ------------------------------------------------------
-    status = sub.add_parser("status", parents=[common_output], help="diagnose one task or the whole rack")
+    status = sub.add_parser("status", parents=[common_output], help="diagnose one task or summarize the queue")
     status.add_argument("task_id", nargs="?")
-    status.add_argument("--rack", action="store_true", help="summarize tasks in this rack")
-    status.add_argument("--lane")
-    status.add_argument("--active-only", action="store_true")
+    status.add_argument("--all", action="store_true", help="summarize all tasks in this queue")
+    # Deprecated alias for --all; hidden from --help, still works at runtime.
+    status.add_argument("--rack", action="store_true", help=argparse.SUPPRESS)
+    status.add_argument("--lane", help="limit summary to one lane (with --all)")
+    status.add_argument("--active-only", action="store_true", help="exclude completed/failed tasks (with --all)")
 
     list_cmd = sub.add_parser("list", parents=[common_output], help="inspect tasks without claiming")
     list_cmd.add_argument("--lane")

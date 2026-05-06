@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   mutation. The legacy key will be dropped in v0.2.
 - Renamed the on-disk index directory `indexes/checkpoints/` to
   `indexes/correlations/` to match the field rename.
+- Renamed the `agent-lanes status --rack` flag to `--all`. `--rack` is
+  retained as a deprecated alias that emits a stderr warning at runtime and
+  will be removed in v0.2.
+
+### Documented
+- `status --lane <name>` and `status --active-only` are now described in
+  CONTRACT.md alongside `--all`.
 
 ## [0.1.0] - 2026-05-05
 
