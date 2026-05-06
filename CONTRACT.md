@@ -322,19 +322,33 @@ task definitions. The library does not enforce keys. Convention keys are
 documented here so dispatchers can share vocabulary, but they are not validated by
 the engine.
 
-Canonical convention keys:
+Bundled dispatcher convention keys:
 
-- `required_vendor` (`claude` | `codex` | `any`) — vendor routing for dispatchers.
+The protocol requires only that metadata be a dict. The keys and values below
+are conventions the bundled dispatcher
+(`agent_lanes/templates/workspace/dispatcher.sh`) understands. Custom
+dispatchers may use any keys and values they like — these are opaque protocol
+strings.
+
+- `required_vendor` (`claude` | `codex` | `any`) — the bundled dispatcher uses
+  this to decide whether the current vendor should claim or skip a task.
 - `model_class` (`opus` | `sonnet` | `haiku` | `gpt-5-3` |
-  `gpt-5-3-spark` | `any`) — model class request for the spawned agent.
-- `effort` (`low` | `medium` | `high` | `xhigh`) — reasoning effort hint for the
-  spawned agent.
-- `required_capabilities` — list of capability tags the responder should have.
-- `model_used` — model the responder actually used.
-- `effort_used` — reasoning effort the responder actually applied.
-- `tokens_in` / `tokens_out` — usage telemetry.
-- `thread_id` — correlation id for multi-turn threads.
-- `parent_task_id` — for thread reconstruction.
+  `gpt-5-3-spark` | `any`) — the bundled dispatcher maps this to the spawned
+  agent's model flag.
+- `effort` (`low` | `medium` | `high` | `xhigh`) — the bundled dispatcher maps
+  this to the spawned agent's reasoning effort flag or prompt hint.
+- `required_capabilities` — the bundled dispatcher does not enforce this today;
+  custom dispatchers may use it as a list of responder capability tags.
+- `model_used` — the bundled dispatcher does not set this today; responders may
+  use it to report the model actually used.
+- `effort_used` — the bundled dispatcher does not set this today; responders may
+  use it to report the reasoning effort actually applied.
+- `tokens_in` / `tokens_out` — the bundled dispatcher does not set these today;
+  responders may use them for usage telemetry.
+- `thread_id` — the bundled dispatcher uses this with `parent_task_id` to append
+  prior responses as multi-turn thread context.
+- `parent_task_id` — the bundled dispatcher uses this with `thread_id` to walk
+  parent tasks for thread reconstruction.
 
 Note: `xhigh` and `gpt-5-3-spark` are conventions specific to the bundled
 dispatcher's vendor mapping; protocol-wise these are opaque strings. Customize
@@ -343,7 +357,7 @@ the dispatcher script if you need different aliases for your CLI.
 `model_class` is the preferred replacement for older `model_hint` conventions.
 `effort` is the preferred replacement for older `min_effort` conventions.
 Dispatchers may accept the older names for compatibility, but new task definitions
-should use the canonical keys above.
+should use the bundled convention keys above.
 
 Older clients ignore unknown keys.
 

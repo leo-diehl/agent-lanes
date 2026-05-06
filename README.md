@@ -158,8 +158,9 @@ Two scaffolding shapes:
   `agent-lanes init --queue-root <abs-path-to-shared-state>` to point at the
   shared queue instead of creating its own.
 
-Routing is metadata-driven. Every dispatcher (Mode A or Mode B) is bound only to
-a vendor (`claude` or `codex`). Each task carries metadata declaring
+Routing is metadata-driven. The bundled dispatchers are bound to `claude` or
+`codex`. Custom dispatchers may use other vendor strings — the protocol treats
+`required_vendor` as opaque. Each task carries metadata declaring
 `required_vendor`, `model_class`, and `effort`. Dispatchers inspect metadata, skip
 tasks not for them, claim matching ones, and spawn (or delegate to a sub-agent)
 the actual work at the requested model and effort. The dispatcher is a router;
