@@ -330,6 +330,9 @@ agent-lanes is local-first and protocol-light. Compared to alternatives:
 
 v0.1 — early. APIs may change before v1.0.
 
+agent-lanes is a personal side project, built on personal time. It is not
+affiliated with or endorsed by any employer of the author.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
