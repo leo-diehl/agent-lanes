@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import StringIO
 import json
 import os
+import shlex
 import shutil
 import stat
 import subprocess
@@ -682,9 +683,9 @@ def test_cli_init_pool_scaffolds_shared_queue_and_dispatchers(tmp_path: Path, ca
         wrapper = dispatchers_dir / wrapper_name
         wrapper_text = wrapper.read_text(encoding="utf-8")
         assert f"VENDOR={vendor}" in wrapper_text
-        assert f'QUEUE_ROOT="{store_path}"' in wrapper_text
-        assert f'CONFIG="{config_path}"' in wrapper_text
-        assert f'bash "{expected_dispatcher_template}" "$@"' in wrapper_text
+        assert f"QUEUE_ROOT={shlex.quote(str(store_path))}" in wrapper_text
+        assert f"CONFIG={shlex.quote(str(config_path))}" in wrapper_text
+        assert f"bash {shlex.quote(str(expected_dispatcher_template))} \"$@\"" in wrapper_text
         assert "{{CONFIG_PATH}}" not in wrapper_text
         assert "{{STORE_PATH}}" not in wrapper_text
         assert "{{DISPATCHER_TEMPLATE}}" not in wrapper_text
@@ -756,6 +757,35 @@ def test_init_pool_works_when_installed_as_wheel(tmp_path: Path) -> None:
     for wrapper_name in ("claude.sh", "codex.sh"):
         wrapper_text = (target / "dispatchers" / wrapper_name).read_text()
         assert "{{" not in wrapper_text, f"{wrapper_name} has unsubstituted placeholders"
+
+
+def test_cli_init_pool_shell_quotes_dispatcher_wrapper_paths(tmp_path: Path, capsys) -> None:
+    target = tmp_path / "workspace $(echo hostile) 'quoted'"
+
+    assert main(["init-pool", str(target), "--workspace-id", "quoted-pool", "--json"]) == 0
+    capsys.readouterr()
+
+    store_path = target / ".agent-lanes-queue" / "state"
+    config_path = target / ".agent-lanes-queue" / "handoff.yaml"
+    expected_dispatcher_template = (
+        Path(__file__).resolve().parents[1] / "agent_lanes" / "templates" / "workspace" / "dispatcher.sh"
+    )
+
+    for wrapper_name in ("claude.sh", "codex.sh"):
+        wrapper = target / "dispatchers" / wrapper_name
+        wrapper_text = wrapper.read_text(encoding="utf-8")
+        assert f"QUEUE_ROOT={shlex.quote(str(store_path))}" in wrapper_text
+        assert f"CONFIG={shlex.quote(str(config_path))}" in wrapper_text
+        assert f"bash {shlex.quote(str(expected_dispatcher_template))} \"$@\"" in wrapper_text
+        assert "$(echo hostile)" in wrapper_text
+        result = subprocess.run(
+            ["bash", "-n", str(wrapper)],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert result.returncode == 0, result.stderr
 
 
 def test_cli_init_refuses_to_overwrite(tmp_path: Path, capsys) -> None:

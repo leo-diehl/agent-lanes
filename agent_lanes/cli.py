@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import shutil
 import stat
 import sys
@@ -563,9 +564,9 @@ def _cmd_init_pool(args: argparse.Namespace) -> int:
 
         replacements = {
             INIT_PLACEHOLDER_WORKSPACE_ID: workspace_id,
-            INIT_PLACEHOLDER_CONFIG_PATH: str(config_path),
-            INIT_PLACEHOLDER_STORE_PATH: str(store_path),
-            INIT_PLACEHOLDER_DISPATCHER_TEMPLATE: str(dispatcher_template),
+            INIT_PLACEHOLDER_CONFIG_PATH: shlex.quote(str(config_path)),
+            INIT_PLACEHOLDER_STORE_PATH: shlex.quote(str(store_path)),
+            INIT_PLACEHOLDER_DISPATCHER_TEMPLATE: shlex.quote(str(dispatcher_template)),
         }
         for src in template_root.rglob("*"):
             rel = src.relative_to(template_root)
