@@ -18,6 +18,8 @@ from .timeutil import iso_after, iso_now, parse_iso, timestamp_slug, utc_now
 
 
 TASK_TERMINAL_STATES = {"completed", "failed"}
+_DIR_MODE = 0o700
+_FILE_MODE = 0o600
 
 
 class HandoffStore:
@@ -27,8 +29,12 @@ class HandoffStore:
         self.index_dir = self.root / "indexes" / "correlations"
         self.lock_path = self.root / "lock"
         self.root.mkdir(parents=True, exist_ok=True)
+        _restrict(self.root, is_dir=True)
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
+        _restrict(self.tasks_dir, is_dir=True)
         self.index_dir.mkdir(parents=True, exist_ok=True)
+        _restrict(self.index_dir.parent, is_dir=True)
+        _restrict(self.index_dir, is_dir=True)
 
     def create_task(
         self,
@@ -92,8 +98,10 @@ class HandoffStore:
         with self.locked():
             task_dir = self.task_dir(task_id)
             task_dir.mkdir(parents=True, exist_ok=False)
+            _restrict(task_dir, is_dir=True)
             atomic_write_json(task_dir / "task.json", task)
             (task_dir / "events.jsonl").touch()
+            _restrict(task_dir / "events.jsonl", is_dir=False)
             self._write_correlation_index(workspace_id, correlation_id, task_id)
             self._append_event_unlocked(task_id, "created", "task queued", {"lane": lane})
         return task
@@ -341,7 +349,7 @@ class HandoffStore:
         workspace_root = Path(task["workspace_root"])
         _require_inside(workspace_root, response_path.resolve(), "response_path")
         response_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(response_path, response["body"])
+        atomic_write_text(response_path, response["body"], restrict=False)
         return response_path
 
     def task_dir(self, task_id: str) -> Path:
@@ -350,7 +358,9 @@ class HandoffStore:
     @contextlib.contextmanager
     def locked(self) -> Iterator[None]:
         self.root.mkdir(parents=True, exist_ok=True)
+        _restrict(self.root, is_dir=True)
         with self.lock_path.open("a+", encoding="utf-8") as lock_file:
+            _restrict(self.lock_path, is_dir=False)
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
             try:
                 yield
@@ -376,6 +386,7 @@ class HandoffStore:
         event = {"created_at": iso_now(), "type": event_type, "message": message, "data": data or {}}
         event_path = self.task_dir(task_id) / "events.jsonl"
         with event_path.open("a", encoding="utf-8") as handle:
+            _restrict(event_path, is_dir=False)
             handle.write(json.dumps(event, sort_keys=True) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
@@ -458,14 +469,20 @@ def atomic_write_json(path: Path, data: dict[str, Any]) -> None:
     atomic_write_text(path, json.dumps(data, indent=2, sort_keys=True) + "\n")
 
 
-def atomic_write_text(path: Path, text: str) -> None:
+def atomic_write_text(path: Path, text: str, *, restrict: bool = True) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if restrict:
+        _restrict(path.parent, is_dir=True)
     tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     with tmp.open("w", encoding="utf-8") as handle:
         handle.write(text)
         handle.flush()
         os.fsync(handle.fileno())
+    if restrict:
+        _restrict(tmp, is_dir=False)
     os.replace(tmp, path)
+    if restrict:
+        _restrict(path, is_dir=False)
     _fsync_dir(path.parent)
 
 
@@ -490,3 +507,11 @@ def _require_inside(root: Path, candidate: Path, label: str) -> None:
         candidate.relative_to(root)
     except ValueError as exc:
         raise StoreError(f"{label} is outside workspace_root: {candidate}") from exc
+
+
+def _restrict(path: Path, *, is_dir: bool) -> None:
+    mode = _DIR_MODE if is_dir else _FILE_MODE
+    try:
+        path.chmod(mode)
+    except (OSError, PermissionError):
+        pass

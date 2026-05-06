@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import stat
 import threading
 from pathlib import Path
 
@@ -62,6 +63,16 @@ def test_store_creates_task_with_valid_state(tmp_path: Path) -> None:
     assert task["metadata"] == {}
     assert (config.store_root / "tasks" / task["id"] / "task.json").exists()
     assert store.latest_task_id("test-workspace", "phase-01-review") == task["id"]
+
+
+def test_store_restricts_task_state_permissions(tmp_path: Path) -> None:
+    _, config, store = make_workspace(tmp_path)
+    task = make_task(store, config)
+    task_dir = config.store_root / "tasks" / task["id"]
+    task_json = task_dir / "task.json"
+
+    assert stat.S_IMODE(task_dir.stat().st_mode) == 0o700
+    assert stat.S_IMODE(task_json.stat().st_mode) == 0o600
 
 
 def test_store_persists_metadata(tmp_path: Path) -> None:
