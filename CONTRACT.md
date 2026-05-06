@@ -400,7 +400,7 @@ agent-lanes init-pool ~/workspace
 ```
 
 This creates `~/workspace/.agent-lanes-queue/` plus
-`~/workspace/_dispatchers/`. The dispatchers folder contains bash wrappers and a
+`~/workspace/dispatchers/`. The dispatchers folder contains bash wrappers and a
 polling chat prompt. The bash dispatcher and the polling chat prompt are
 alternative consumers of the same queue and can run at the same time.
 

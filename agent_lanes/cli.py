@@ -531,11 +531,11 @@ def _cmd_init_pool(args: argparse.Namespace) -> int:
     target_root = Path(args.path).expanduser().resolve()
     target_root.mkdir(parents=True, exist_ok=True)
     queue_dir = target_root / ".agent-lanes-queue"
-    dispatchers_dir = target_root / "_dispatchers"
+    dispatchers_dir = target_root / "dispatchers"
     if queue_dir.exists():
         raise HandoffError(f".agent-lanes-queue/ already exists: {queue_dir}")
     if dispatchers_dir.exists():
-        raise HandoffError(f"_dispatchers/ already exists: {dispatchers_dir}")
+        raise HandoffError(f"dispatchers/ already exists: {dispatchers_dir}")
 
     workspace_id = args.workspace_id or target_root.name or "workspace"
     config_path = queue_dir / "handoff.yaml"

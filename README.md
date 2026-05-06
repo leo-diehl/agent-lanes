@@ -56,7 +56,7 @@ agent-lanes init-pool ~/myworkspace
 ```
 
 Creates `~/myworkspace/.agent-lanes-queue/` (the shared queue) and
-`~/myworkspace/_dispatchers/` (per-vendor dispatcher wrappers and a polling chat
+`~/myworkspace/dispatchers/` (per-vendor dispatcher wrappers and a polling chat
 prompt).
 
 ```bash
@@ -67,7 +67,7 @@ mkdir tasks
 ```
 
 3. **Attach a dispatcher.** Open a Claude Code or Codex chat, paste
-   `~/myworkspace/_dispatchers/POLLING-CHAT-PROMPT.md` into it, fill in the vendor
+   `~/myworkspace/dispatchers/POLLING-CHAT-PROMPT.md` into it, fill in the vendor
    identity (one line at the top), and send. The chat is now a long-running
    dispatcher — it polls the shared queue, claims tasks whose `required_vendor`
    matches its vendor, spawns a sub-agent at the requested model and effort,
@@ -114,8 +114,8 @@ unattended use or environments without a chat client. Each task incurs API token
 cost.
 
 ```bash
-bash ~/myworkspace/_dispatchers/claude.sh   # one terminal
-bash ~/myworkspace/_dispatchers/codex.sh    # another terminal
+bash ~/myworkspace/dispatchers/claude.sh   # one terminal
+bash ~/myworkspace/dispatchers/codex.sh    # another terminal
 ```
 
 Each wrapper long-polls the queue, claims tasks for its vendor, and spawns a fresh

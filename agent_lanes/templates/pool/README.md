@@ -25,7 +25,7 @@ agent-lanes \
   status --all --json
 ```
 
-The scaffolded dispatcher wrappers live in the sibling `_dispatchers/`
+The scaffolded dispatcher wrappers live in the sibling `dispatchers/`
 directory. You can run a bash dispatcher or paste the polling chat prompt into a
 chat that can call shell commands and spawn sub-agents.
 

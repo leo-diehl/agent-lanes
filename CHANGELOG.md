@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Renamed the `agent-lanes status --rack` flag to `--all`. `--rack` is
   retained as a deprecated alias that emits a stderr warning at runtime and
   will be removed in v0.2.
+- `agent-lanes init-pool` scaffolds the dispatcher folder as `dispatchers/`
+  instead of `_dispatchers/`. The leading underscore was an unconventional
+  marker for a directory the user is expected to edit.
 
 ### Documented
 - `status --lane <name>` and `status --active-only` are now described in

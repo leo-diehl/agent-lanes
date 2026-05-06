@@ -612,7 +612,7 @@ def test_cli_init_pool_scaffolds_shared_queue_and_dispatchers(tmp_path: Path, ca
     assert out["workspace_id"] == "pool-demo"
 
     queue_dir = target / ".agent-lanes-queue"
-    dispatchers_dir = target / "_dispatchers"
+    dispatchers_dir = target / "dispatchers"
     config_path = queue_dir / "handoff.yaml"
     store_path = queue_dir / "state"
     expected_dispatcher_template = (
@@ -705,15 +705,15 @@ def test_init_pool_works_when_installed_as_wheel(tmp_path: Path) -> None:
     )
 
     assert (target / ".agent-lanes-queue" / "handoff.yaml").exists()
-    assert (target / "_dispatchers" / "claude.sh").exists()
-    assert (target / "_dispatchers" / "codex.sh").exists()
-    assert (target / "_dispatchers" / "POLLING-CHAT-PROMPT.md").exists()
+    assert (target / "dispatchers" / "claude.sh").exists()
+    assert (target / "dispatchers" / "codex.sh").exists()
+    assert (target / "dispatchers" / "POLLING-CHAT-PROMPT.md").exists()
 
-    poll_prompt = (target / "_dispatchers" / "POLLING-CHAT-PROMPT.md").read_text()
+    poll_prompt = (target / "dispatchers" / "POLLING-CHAT-PROMPT.md").read_text()
     assert "{{" not in poll_prompt, "polling prompt has unsubstituted placeholders"
 
     for wrapper_name in ("claude.sh", "codex.sh"):
-        wrapper_text = (target / "_dispatchers" / wrapper_name).read_text()
+        wrapper_text = (target / "dispatchers" / wrapper_name).read_text()
         assert "{{" not in wrapper_text, f"{wrapper_name} has unsubstituted placeholders"
 
 
