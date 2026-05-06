@@ -48,23 +48,26 @@ filesystems (NFS, SMB) and multi-host setups are not supported.
 ## Quickstart
 
 Set up a workspace pool, attach a long-running dispatcher chat, submit a task. Five
-commands.
+steps.
 
-```bash
-# 1. Scaffold a workspace pool (shared queue + dispatcher artifacts)
-agent-lanes init-pool ~/myworkspace
-```
+1. **Scaffold a workspace pool** — creates the shared queue and per-vendor
+   dispatcher artifacts.
 
-Creates `~/myworkspace/.agent-lanes-queue/` (the shared queue) and
-`~/myworkspace/dispatchers/` (per-vendor dispatcher wrappers and a polling chat
-prompt).
+   ```bash
+   agent-lanes init-pool ~/myworkspace
+   ```
 
-```bash
-# 2. Scaffold a project pointed at the pool
-mkdir ~/myworkspace/example-project && cd ~/myworkspace/example-project
-agent-lanes init --queue-root ~/myworkspace/.agent-lanes-queue/state
-mkdir tasks
-```
+   Creates `~/myworkspace/.agent-lanes-queue/` (the shared queue) and
+   `~/myworkspace/dispatchers/` (per-vendor dispatcher wrappers and a polling
+   chat prompt).
+
+2. **Scaffold a project pointed at the pool.**
+
+   ```bash
+   mkdir ~/myworkspace/example-project && cd ~/myworkspace/example-project
+   agent-lanes init --queue-root ~/myworkspace/.agent-lanes-queue/state
+   mkdir tasks
+   ```
 
 3. **Attach a dispatcher.** Open a Claude Code or Codex chat, paste
    `~/myworkspace/dispatchers/POLLING-CHAT-PROMPT.md` into it, fill in the vendor
@@ -74,27 +77,29 @@ mkdir tasks
    captures the result, and responds. Idle costs zero tokens (it's a blocking
    syscall).
 
-```yaml
-# 4. Define a task: tasks/code-review.yaml
-lane: default
-metadata:
-  required_vendor: claude
-  model_class: sonnet
-  effort: high
-prompt: |
-  Review the request file. Return blocking issues, non-blocking suggestions,
-  and a one-line verdict.
-```
+4. **Define a task** at `tasks/code-review.yaml`:
 
-```bash
-# 5. Submit and wait
-TASK_ID=$(./handoff/bin/handoff submit \
-  --task tasks/code-review.yaml \
-  --request-from outputs/01-step.md \
-  --response-to outputs/01-review.md \
-  --json | jq -r .task_id)
-./handoff/bin/handoff wait "$TASK_ID"
-```
+   ```yaml
+   lane: default
+   metadata:
+     required_vendor: claude
+     model_class: sonnet
+     effort: high
+   prompt: |
+     Review the request file. Return blocking issues, non-blocking suggestions,
+     and a one-line verdict.
+   ```
+
+5. **Submit and wait.**
+
+   ```bash
+   TASK_ID=$(./handoff/bin/handoff submit \
+     --task tasks/code-review.yaml \
+     --request-from outputs/01-step.md \
+     --response-to outputs/01-review.md \
+     --json | jq -r .task_id)
+   ./handoff/bin/handoff wait "$TASK_ID"
+   ```
 
 The polling chat picks up the task, the sub-agent does the review, the response
 lands in `outputs/01-review.md`, and the wait unblocks.
