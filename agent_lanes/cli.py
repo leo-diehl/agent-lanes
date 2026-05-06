@@ -136,6 +136,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "serve":
             print(f"serving agent-lanes on {args.host}:{args.port}", file=sys.stderr)
+            if args.host not in ("127.0.0.1", "localhost", "::1"):
+                print(
+                    f"[warning] agent-lanes serve has no authentication. "
+                    f"Binding to {args.host} exposes the queue to your local network. "
+                    f"Stop the server with Ctrl-C if you did not intend this.",
+                    file=sys.stderr,
+                )
             serve(store, host=args.host, port=args.port)
             return 0
     except TimeoutError as exc:
