@@ -489,4 +489,4 @@ def _require_inside(root: Path, candidate: Path, label: str) -> None:
     try:
         candidate.relative_to(root)
     except ValueError as exc:
-        raise StoreError(f"{label} escapes workspace root: {candidate}") from exc
+        raise StoreError(f"{label} is outside workspace_root: {candidate}") from exc

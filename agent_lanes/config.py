@@ -122,12 +122,10 @@ def load_task_file(task_path: str | Path) -> dict[str, Any]:
             file=sys.stderr,
         )
 
-    # Resolve prompt_file relative to the task file's directory.
+    # Keep prompt_file as data; the submit path validates it once workspace_root is known.
     if "prompt_file" in accepted and accepted["prompt_file"] is not None:
-        prompt_file = Path(str(accepted["prompt_file"])).expanduser()
-        if not prompt_file.is_absolute():
-            prompt_file = path.parent / prompt_file
-        accepted["prompt_file"] = str(prompt_file.resolve())
+        accepted["prompt_file"] = str(accepted["prompt_file"])
+        accepted["__task_file_dir"] = str(path.parent)
 
     metadata = accepted.get("metadata")
     if metadata is None:

@@ -378,6 +378,37 @@ prompt: |
     assert task["prompt"].startswith("Default prompt body.")
 
 
+def test_cli_submit_task_file_prompt_file_must_stay_inside_workspace(tmp_path: Path, capsys) -> None:
+    workspace, config_path, config = make_workspace(tmp_path)
+    tasks_dir = workspace / "tasks"
+    tasks_dir.mkdir()
+    task_file = tasks_dir / "x.yaml"
+    task_file.write_text(
+        """
+lane: claude-review
+prompt_file: /etc/passwd
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    rc = main(
+        [
+            "--config",
+            str(config_path),
+            "submit",
+            "--task",
+            str(task_file),
+            "--json",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "prompt_file is outside workspace_root" in captured.err
+    assert "/etc/passwd" in captured.err
+    assert HandoffStore(config.store_root).list_tasks() == []
+
+
 def test_cli_submit_task_file_supporting_paths_flow_through(tmp_path: Path, capsys) -> None:
     workspace, config_path, config = make_workspace(tmp_path)
     context_path = workspace / "outputs" / "context.md"

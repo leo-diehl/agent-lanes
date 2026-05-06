@@ -20,7 +20,7 @@ from .defaults import (
 from .errors import HandoffError, TimeoutError
 from .selftest import run_self_test
 from .server import serve
-from .store import HandoffStore
+from .store import HandoffStore, _require_inside
 
 
 # --- init ---------------------------------------------------------------------
@@ -334,8 +334,11 @@ def _cmd_submit(args: argparse.Namespace, config: RuntimeConfig, store: HandoffS
     # Merge task-file defaults with CLI overrides.
     fields: dict[str, object] = {}
     metadata: dict[str, object] = {}
+    prompt_file_base_dir = Path.cwd()
     if args.task_path:
         task_data = load_task_file(args.task_path)
+        if task_data.get("__task_file_dir") is not None:
+            prompt_file_base_dir = Path(str(task_data["__task_file_dir"]))
         for key in ("lane", "prompt", "prompt_file", "request_from", "response_to", "supporting_paths", "worktree_path", "branch"):
             if task_data.get(key) is not None:
                 fields[key] = task_data[key]
@@ -356,6 +359,7 @@ def _cmd_submit(args: argparse.Namespace, config: RuntimeConfig, store: HandoffS
     if args.prompt_file:
         fields["prompt_file"] = args.prompt_file
         fields.pop("prompt", None)
+        prompt_file_base_dir = Path.cwd()
     if args.worktree_path:
         fields["worktree_path"] = args.worktree_path
     if args.branch:
@@ -367,22 +371,26 @@ def _cmd_submit(args: argparse.Namespace, config: RuntimeConfig, store: HandoffS
     lane = fields.get("lane")
     if not lane:
         raise HandoffError("submit requires --lane (either inline or via --task)")
-    request_from = fields.get("request_from")
-    if not request_from:
-        raise HandoffError("submit requires --request-from (either inline or via --task)")
-    response_to = fields.get("response_to")
-    if not response_to:
-        raise HandoffError("submit requires --response-to (either inline or via --task)")
 
-    # Resolve prompt body.
+    # Resolve prompt body before artifact path validation so unsafe prompt_file
+    # values are rejected even when other submit fields are missing.
     prompt_body = ""
     if "prompt" in fields and fields["prompt"] is not None:
         prompt_body = str(fields["prompt"])
     elif "prompt_file" in fields and fields["prompt_file"] is not None:
         prompt_path = Path(str(fields["prompt_file"])).expanduser()
         if not prompt_path.is_absolute():
-            prompt_path = (Path.cwd() / prompt_path).resolve()
+            prompt_path = prompt_file_base_dir / prompt_path
+        prompt_path = prompt_path.resolve()
+        _require_inside(config.workspace_root, prompt_path, "prompt_file")
         prompt_body = prompt_path.read_text(encoding="utf-8")
+
+    request_from = fields.get("request_from")
+    if not request_from:
+        raise HandoffError("submit requires --request-from (either inline or via --task)")
+    response_to = fields.get("response_to")
+    if not response_to:
+        raise HandoffError("submit requires --response-to (either inline or via --task)")
 
     # Resolve worktree/branch
     worktree_path = fields.get("worktree_path") or (
